@@ -1593,7 +1593,11 @@ input[type="date"] {
 <button class="btn bp" data-action="productionImport.open" onclick="openProductionImportModal()">⬆ Import File</button>
 </div>
 <div class="cb">
-<div id="prod-import-summary" style="color:var(--tx2);font-size:13px;">Click <strong>Import File</strong> to begin. You can upload, preview, and commit entries step by step.</div>
+<div class="prod-import-drop" onclick="document.getElementById('prod-import-input').click()">
+📂 Upload Excel/CSV<br/><small style="color:var(--tx3);">Click or drag file</small>
+<input accept=".xlsx,.xls,.csv" id="prod-import-input" onchange="previewProductionImport(this)" style="display:none;" type="file"/>
+</div>
+<div id="prod-import-summary" style="color:var(--tx2);font-size:13px;margin-top:12px;">Click <strong>Import File</strong> to begin. You can upload, preview, and commit entries step by step.</div>
 </div>
 </div>
 <div class="card">
