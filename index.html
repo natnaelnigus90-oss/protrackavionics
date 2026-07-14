@@ -1197,10 +1197,7 @@ input[type="date"] {
 /* ═══════════════════════════════════════
    CONSOLIDATED ADDITIONS — Demo Mode, Departments, Managers
 ═══════════════════════════════════════ */
-.demo-banner{position:fixed;top:0;left:0;right:0;z-index:9000;background:linear-gradient(90deg,var(--amber),#d97706);color:#1a1200;font-size:12px;font-weight:700;text-align:center;padding:6px 10px;display:none;}
-.demo-banner.on{display:block;}
-.demo-btn{width:100%;padding:11px;background:transparent;border:1px dashed var(--bdr2);border-radius:9px;color:var(--tx2);font-size:13px;font-weight:600;cursor:pointer;margin-top:10px;transition:all .15s;}
-.demo-btn:hover{border-color:var(--blue);color:var(--blue);background:var(--bdim);}
+
 .dept-card{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--bdr);gap:10px;}
 .dept-card:last-child{border-bottom:none;}
 .dept-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:99px;background:var(--bdim);color:var(--blue);font-size:11px;font-weight:700;}
@@ -1268,7 +1265,7 @@ input[type="date"] {
 </head>
 
 <body>
-<div class="demo-banner" id="demo-banner">🧪 DEMO MODE — data is local only and resets on reload. <a href="#" onclick="exitDemoMode();return false;" style="color:#1a1200;text-decoration:underline;">Exit demo</a></div>
+
 <a class="skip-link" href="#main-content">Skip to main content</a>
 
 <button aria-label="Toggle theme" class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
@@ -1936,7 +1933,7 @@ input[type="date"] {
 <div class="fg f2">
 <div class="fgroup"><label class="flabel">Manager ID *</label><input class="finput" id="mm-id" placeholder="e.g. MGR001"/></div>
 <div class="fgroup"><label class="flabel">Name *</label><input class="finput" id="mm-name" placeholder="Full name"/></div>
-<div class="fgroup"><label class="flabel">Password</label><input class="finput" id="mm-pwd" placeholder="demo"/></div>
+<div class="fgroup"><label class="flabel">Password</label><input class="finput" id="mm-pwd" placeholder=""/></div>
 <div class="fgroup"><label class="flabel">Status</label><select class="fselect" id="mm-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
 </div>
 <div class="fgroup"><label class="flabel">Departments *</label><div class="mgr-dept-checks" id="mm-depts"></div></div>
@@ -2154,7 +2151,7 @@ input[type="date"] {
 <div class="fgroup"><label class="flabel">Department *</label><select class="fselect" id="mt-dept" data-dept-select><option value="">— Select Department —</option><option value="electric">Electric Shop</option><option value="galley">Galley Shop</option><option value="instrument">Instrument Shop</option><option value="radio-ife">Radio &amp; IFE Shop</option><option value="tl-engine-harness">TL Engine Harness Maintenance &amp; Buildup</option></select></div>
 <div class="fgroup"><label class="flabel">Monthly Target (hrs)</label><input class="finput" id="mt-target" placeholder="160" type="number"/></div>
 <div class="fgroup"><label class="flabel">Status</label><select class="fselect" id="mt-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
-<div class="fgroup"><label class="flabel">Password</label><input autocomplete="new-password" class="finput" id="mt-pwd" type="password" value="demo"/></div>
+<div class="fgroup"><label class="flabel">Password</label><input autocomplete="new-password" class="finput" id="mt-pwd" type="password" value=""/></div>
 <div class="fgroup"><label class="flabel">Role Access</label><select class="fselect" id="mt-role-access"><option value="tech">Technician only</option><option value="tech_sup">Under supervision only</option><option value="tech_insp">Inspector + Technician + Preliminary</option><option value="all">All 4 roles</option></select><div style="font-size:11px;color:var(--tx3);margin-top:3px;">Technicians can only use roles assigned here.</div></div>
 <div class="fgroup ff" style="grid-column:1/-1;">
 <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;background:var(--gdim);border:1px solid rgba(16,185,129,.2);border-radius:8px;">
@@ -2195,7 +2192,7 @@ input[type="date"] {
 <div class="fgroup"><label class="flabel">Leader ID *</label><input class="finput" id="ml-id" placeholder="TL002"/></div>
 <div class="fgroup"><label class="flabel">Full Name *</label><input class="finput" id="ml-name" placeholder="Name"/></div>
 <div class="fgroup"><label class="flabel">Department *</label><select class="fselect" id="ml-dept" data-dept-select></select></div><div class="fgroup"><label class="flabel">Email</label><input class="finput" id="ml-email" placeholder="email@company.com" type="email"/></div>
-<div class="fgroup"><label class="flabel">Password</label><input autocomplete="new-password" class="finput" id="ml-pwd" type="password" value="demo"/></div>
+<div class="fgroup"><label class="flabel">Password</label><input autocomplete="new-password" class="finput" id="ml-pwd" type="password" value=""/></div>
 <div class="fgroup"><label class="flabel">Status</label><select class="fselect" id="ml-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
 <div class="fgroup"><label class="flabel">Profile Photo</label>
 <div class="pic-up" onclick="document.getElementById('ml-pic').click()">
@@ -2216,7 +2213,7 @@ input[type="date"] {
 <div class="fgroup"><label class="flabel">Controller ID *</label><input class="finput" id="mc-id" placeholder="CP002"/></div>
 <div class="fgroup"><label class="flabel">Full Name *</label><input class="finput" id="mc-name" placeholder="Name"/></div>
 <div class="fgroup"><label class="flabel">Department *</label><select class="fselect" id="mc-dept" data-dept-select></select></div><div class="fgroup"><label class="flabel">Email</label><input class="finput" id="mc-email" placeholder="email@company.com" type="email"/></div>
-<div class="fgroup"><label class="flabel">Password</label><input autocomplete="new-password" class="finput" id="mc-pwd" type="password" value="demo"/></div>
+<div class="fgroup"><label class="flabel">Password</label><input autocomplete="new-password" class="finput" id="mc-pwd" type="password" value=""/></div>
 <div class="fgroup"><label class="flabel">Status</label><select class="fselect" id="mc-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
 <div class="fgroup"><label class="flabel">Profile Photo</label>
 <div class="pic-up" onclick="document.getElementById('mc-pic').click()">
@@ -2338,7 +2335,7 @@ let techs = [], parts = [], leaders = [], controllers = [], managers = [], entri
 let departments = [];
 let shopPerf = []; // {id, dept, weekStart, sdt:[5], scrap:[5], comment, updatedBy, updatedAt}
 let appUsers = [];
-let settings = { defaultMonthlyTarget: 160, passwords: { tech: 'demo', lead: 'demo', dev: 'dev123' }, permissions: null };
+let settings = { defaultMonthlyTarget: 160, passwords: {}, permissions: null };
 let profilePics = {};
 let selJobRole = 'Technician', selJobRoleIdx = 0;
 let selectedPartsByPrefix = { e: null, le: null };
@@ -2348,46 +2345,38 @@ let achievFilter = 'all';
 let loginAttempts = 0;
 let pendingEntry = null;
 let lastImportedTechs = [], lastImportedParts = [];
-let IS_DEMO = false;
 let sb = null; // supabase client
 
 // ────────────────────────────────────────────────
-//  DATA LAYER — one clean interface, two backends
-//  (real Supabase, or an in-memory Demo Mode store)
+//  DATA LAYER — Supabase backend
 // ────────────────────────────────────────────────
 const TABLES = ['technicians', 'parts', 'leaders', 'controllers', 'managers', 'entries', 'assignments', 'departments', 'shop_performance'];
-const DemoStore = { technicians: {}, parts: {}, leaders: {}, controllers: {}, managers: {}, entries: {}, assignments: {}, departments: {}, shop_performance: {}, app_settings: {} };
 
 function newId(prefix = '') { return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
 const DB = {
   async list(table) {
-    if (IS_DEMO) return Object.values(DemoStore[table] || {});
     const { data, error } = await sb.from(table).select('*');
     if (error) throw error;
     return data || [];
   },
   async upsert(table, row) {
     if (!row.id) row.id = newId(table[0] + '_');
-    if (IS_DEMO) { DemoStore[table][row.id] = { ...row }; return row; }
     const { data, error } = await sb.from(table).upsert(row, { onConflict: 'id' }).select().single();
     if (error) throw error;
     return data;
   },
   async remove(table, id) {
-    if (IS_DEMO) { delete DemoStore[table][id]; return true; }
     const { error } = await sb.from(table).delete().eq('id', id);
     if (error) throw error;
     return true;
   },
   async getSettings() {
-    if (IS_DEMO) return DemoStore.app_settings.global || null;
     const { data, error } = await sb.from('app_settings').select('value').eq('key', 'global').maybeSingle();
     if (error) throw error;
     return data ? data.value : null;
   },
   async saveSettings(obj) {
-    if (IS_DEMO) { DemoStore.app_settings.global = obj; return true; }
     const { error } = await sb.from('app_settings').upsert({ key: 'global', value: obj }, { onConflict: 'key' });
     if (error) throw error;
     return true;
@@ -3692,7 +3681,7 @@ window.renderTechs = renderTechs;
 window.openAddTech = function () { editTechId = null; clearTechForm(); stxt('mt-title', 'Add Technician'); openModal('m-tech'); };
 window.openEditTech = function (id) {
   const t = techs.find(x => x.id === id); if (!t) return; editTechId = id;
-  sv('mt-id', t.id); sv('mt-name', t.name); sv('mt-target', t.monthlyTarget || 160); sv('mt-pwd', t.password || 'demo');
+  sv('mt-id', t.id); sv('mt-name', t.name); sv('mt-target', t.monthlyTarget || 160); sv('mt-pwd', t.password || '');
   const stEl = document.getElementById('mt-status'); if (stEl) stEl.value = t.status || 'active';
   const deptEl = document.getElementById('mt-dept'); if (deptEl) deptEl.value = t.department || '';
   const roleKey = getRoleAccessKeyForTech(t); const ra = document.getElementById('mt-role-access'); if (ra) ra.value = roleKey;
@@ -3789,7 +3778,7 @@ window.openAddLeader = function () {
 };
 window.openEditLeader = function (id) {
   const l = leaders.find(x => x.id === id); if (!l) return; editLeaderId = id;
-  sv('ml-id', l.id); sv('ml-name', l.name); sv('ml-email', l.email || ''); sv('ml-pwd', l.password || 'demo');
+  sv('ml-id', l.id); sv('ml-name', l.name); sv('ml-email', l.email || ''); sv('ml-pwd', l.password || '');
   const st = document.getElementById('ml-status'); if (st) st.value = l.status || 'active';
   const dp = document.getElementById('ml-dept'); if (dp) dp.value = l.department || departments[0]?.id || '';
   stxt('ml-title', 'Edit Leader');
@@ -3804,7 +3793,7 @@ window.saveLeader = async function () {
   const id = sanitize(document.getElementById('ml-id')?.value), name = sanitize(document.getElementById('ml-name')?.value);
   if (!id || !name) { toast('ID and Name required', 'error'); return; }
   const dept = document.getElementById('ml-dept')?.value || departments[0]?.id || '';
-  const l = { id, name, department: dept, email: sanitize(document.getElementById('ml-email')?.value) || '', password: sanitize(document.getElementById('ml-pwd')?.value) || 'demo', status: document.getElementById('ml-status')?.value || 'active' };
+  const l = { id, name, department: dept, email: sanitize(document.getElementById('ml-email')?.value) || '', password: sanitize(document.getElementById('ml-pwd')?.value) || '', status: document.getElementById('ml-status')?.value || 'active' };
   try {
     if (editLeaderId) { const idx = leaders.findIndex(x => x.id === editLeaderId); await DB.upsert('leaders', l); leaders[idx] = l; toast('Updated'); }
     else { if (leaders.find(x => x.id === id)) { toast('ID exists', 'error'); return; } const saved = await DB.upsert('leaders', l); leaders.push(saved); toast('Added'); }
@@ -3837,7 +3826,7 @@ window.openAddController = function () {
 };
 window.openEditController = function (id) {
   const c = controllers.find(x => x.id === id); if (!c) return; editControllerId = id;
-  sv('mc-id', c.id); sv('mc-name', c.name); sv('mc-email', c.email || ''); sv('mc-pwd', c.password || 'demo');
+  sv('mc-id', c.id); sv('mc-name', c.name); sv('mc-email', c.email || ''); sv('mc-pwd', c.password || '');
   const st = document.getElementById('mc-status'); if (st) st.value = c.status || 'active';
   const dp = document.getElementById('mc-dept'); if (dp) dp.value = c.department || departments[0]?.id || '';
   stxt('mc-title', 'Edit Production Controller');
@@ -3852,7 +3841,7 @@ window.saveController = async function () {
   const id = sanitize(document.getElementById('mc-id')?.value), name = sanitize(document.getElementById('mc-name')?.value);
   if (!id || !name) { toast('ID and Name required', 'error'); return; }
   const dept = document.getElementById('mc-dept')?.value || departments[0]?.id || '';
-  const c = { id, name, department: dept, email: sanitize(document.getElementById('mc-email')?.value) || '', password: sanitize(document.getElementById('mc-pwd')?.value) || 'demo', status: document.getElementById('mc-status')?.value || 'active' };
+  const c = { id, name, department: dept, email: sanitize(document.getElementById('mc-email')?.value) || '', password: sanitize(document.getElementById('mc-pwd')?.value) || '', status: document.getElementById('mc-status')?.value || 'active' };
   try {
     if (editControllerId) { const idx = controllers.findIndex(x => x.id === editControllerId); await DB.upsert('controllers', c); controllers[idx] = c; toast('Updated'); }
     else { if (controllers.find(x => x.id === id)) { toast('ID exists', 'error'); return; } const saved = await DB.upsert('controllers', c); controllers.push(saved); toast('Added'); }
@@ -3886,7 +3875,7 @@ function clearManagerForm() {
 window.clearManagerForm = clearManagerForm;
 window.openEditManager = function (id) {
   const m = managers.find(x => x.id === id); if (!m) return; editManagerId = id;
-  sv('mm-id', m.id); sv('mm-name', m.name); sv('mm-pwd', m.password || 'demo');
+  sv('mm-id', m.id); sv('mm-name', m.name); sv('mm-pwd', m.password || '');
   const st = document.getElementById('mm-status'); if (st) st.value = m.status || 'active';
   stxt('mm-form-title', '✏️ Edit Manager'); renderManagerDeptChecks(m.departments || []);
 };
@@ -3895,7 +3884,7 @@ window.saveManager = async function () {
   if (!id || !name) { toast('ID and Name required', 'error'); return; }
   const depts = Array.from(document.querySelectorAll('#mm-depts input[type="checkbox"]:checked')).map(el => el.value);
   if (!depts.length) { toast('Select at least one department', 'error'); return; }
-  const m = { id, name, departments: depts, password: sanitize(document.getElementById('mm-pwd')?.value) || 'demo', status: document.getElementById('mm-status')?.value || 'active' };
+  const m = { id, name, departments: depts, password: sanitize(document.getElementById('mm-pwd')?.value) || '', status: document.getElementById('mm-status')?.value || 'active' };
   try {
     if (editManagerId) { const idx = managers.findIndex(x => x.id === editManagerId); await DB.upsert('managers', m); managers[idx] = m; toast('Updated'); }
     else { if (managers.find(x => x.id === id)) { toast('ID exists', 'error'); return; } const saved = await DB.upsert('managers', m); managers.push(saved); toast('Added'); }
@@ -4249,7 +4238,7 @@ window.handleTechImport = function (input) {
         if (row.ID && row.Name) {
           const id = sanitize(row.ID.toString());
           if (!techs.find(t => t.id === id)) {
-            const nt = { id, name: sanitize(row.Name.toString()), monthlyTarget: parseFloat(row.MonthlyTarget) || settings.defaultMonthlyTarget || 160, status: 'active', password: settings.passwords?.tech || 'demo', department: normDeptId(row.Department || '') || departments[0]?.id || '' };
+            const nt = { id, name: sanitize(row.Name.toString()), monthlyTarget: parseFloat(row.MonthlyTarget) || settings.defaultMonthlyTarget || 160, status: 'active', password: '', department: normDeptId(row.Department || '') || departments[0]?.id || '' };
             const saved = await DB.upsert('technicians', nt); techs.push(saved); lastImportedTechs.push(saved);
           }
         }
@@ -4647,7 +4636,7 @@ function renderSystem() {
     <div class="srow"><div><div class="srl-t">Parts</div></div><span class="bdg bamb">${parts.length}</span></div>
     <div class="srow"><div><div class="srl-t">Departments</div></div><span class="bdg bcyn">${departments.length}</span></div>
     <div class="srow"><div><div class="srl-t">Assignments</div></div><span class="bdg bcyn">${assignments.length}</span></div>
-    <div class="srow"><div><div class="srl-t">Data source</div></div><span class="bdg ${IS_DEMO ? 'bamb' : 'bgr'}">${IS_DEMO ? 'Demo Mode (local only)' : 'Supabase'}</span></div>`;
+    <div class="srow"><div><div class="srl-t">Data source</div></div><span class="bdg bgr">Supabase</span></div>`;
   renderLB();
 }
 window.renderSystem = renderSystem;
@@ -4692,70 +4681,8 @@ function toggleVer() { document.getElementById('ver-history')?.classList.toggle(
 window.toggleVer = toggleVer;
 
 // ════════════════════════════════════════════════
-//  DEMO MODE (offline sanity-check, no backend required)
-// ════════════════════════════════════════════════
-function seedDemoData() {
-  departments.length = 0; departments.push(...DEFAULT_DEPARTMENTS.map(d => ({ ...d })));
-  const mkTech = (id, name, dept, target = 160, roleAccess = 'tech') => ({ id, name, department: dept, monthlyTarget: target, status: 'active', password: 'demo', roleAccess, allowedRoles: ROLE_ACCESS_PROFILES[roleAccess].slice() });
-  techs.length = 0; techs.push(
-    mkTech('T1001', 'Abel Getachew', 'electric', 160, 'tech'),
-    mkTech('T1002', 'Bethlehem Alemu', 'electric', 160, 'tech_sup'),
-    mkTech('T1003', 'Dawit Tesfaye', 'galley', 150, 'tech_insp'),
-    mkTech('T1004', 'Selam Worku', 'instrument', 160, 'tech'),
-    mkTech('T1005', 'Yared Bekele', 'radio-ife', 140, 'all')
-  );
-  parts.length = 0; parts.push(
-    { id: 'p1', name: 'Cabin Light Assembly', num: 'PN-1001', hours: 4, ata: '33' },
-    { id: 'p2', name: 'Galley Oven Unit', num: 'PN-2002', hours: 6, ata: '25' },
-    { id: 'p3', name: 'Pitot Probe', num: 'PN-3003', hours: 3, ata: '34' },
-    { id: 'p4', name: 'IFE Seat Monitor', num: 'PN-4004', hours: 5, ata: '44' }
-  );
-  leaders.length = 0; leaders.push({ id: 'TL001', name: 'Meron Fikru', department: 'electric', email: 'tl001@protrack.local', password: 'demo', status: 'active' });
-  controllers.length = 0; controllers.push({ id: 'PC001', name: 'Kalkidan Girma', department: 'electric', email: 'pc001@protrack.local', password: 'demo', status: 'active' });
-  managers.length = 0; managers.push({ id: 'MGR001', name: 'Henok Assefa', departments: ['electric', 'galley', 'instrument', 'radio-ife'], password: 'demo', status: 'active' });
-  assignments.length = 0;
-  entries.length = 0;
-  const today = todayEAT();
-  entries.push(
-    { id: 'e1', techId: 'T1001', techName: 'Abel Getachew', pname: 'Cabin Light Assembly', pnum: 'PN-1001', taskCode: 'TSFN800GRE30', jobRole: 'Technician', jobType: 'completed', time: today, hours: 4, stdHours: 4, ata: '33', approvalStatus: 'accepted', dept: 'electric' },
-    { id: 'e2', techId: 'T1002', techName: 'Bethlehem Alemu', pname: 'Galley Oven Unit', pnum: 'PN-2002', taskCode: 'GAL200OVN', jobRole: 'Under Supervision', jobType: 'completed', time: today, hours: 4.5, stdHours: 6, ata: '25', approvalStatus: 'pending', dept: 'electric' },
-    { id: 'e3', techId: 'T1003', techName: 'Dawit Tesfaye', pname: 'Pitot Probe', pnum: 'PN-3003', taskCode: 'PIT300CHK', jobRole: 'Inspector', jobType: 'completed', time: today, hours: 1, stdHours: 3, ata: '34', approvalStatus: 'accepted', dept: 'galley' }
-  );
-  shopPerf.length = 0;
-  shopPerf.push({
-    id: 'sp1', dept: 'electric', weekStart: getWR().start, weekLabel: '',
-    totalInventory: 42, longestInventory: 12, wfp: 6,
-    daily: [
-      { target: 20, actual: 18, input: 22, tat: 2.5 }, { target: 20, actual: 21, input: 18, tat: 2.1 },
-      { target: 20, actual: 19, input: 20, tat: 2.3 }, { target: 20, actual: 20, input: 19, tat: 2.0 },
-      { target: 20, actual: 17, input: 21, tat: 2.8 }, { target: 0, actual: 0, input: 0, tat: 0 }, { target: 0, actual: 0, input: 0, tat: 0 }
-    ],
-    weeklyTarget: 100, weeklyOutput: 95, weeklyAvgTat: 2.34,
-    managerComment: 'Good throughput this week — keep an eye on Friday\'s dip.', managerCommentBy: 'Henok Assefa', managerCommentAt: today,
-    updatedBy: 'Meron Fikru', updatedAt: today
-  });
-  settings = { defaultMonthlyTarget: 160, passwords: { tech: 'demo', lead: 'demo', dev: 'dev123' }, permissions: defaultPermissionsV2(), ratios: { tech: 25, sup: 75, inspHrs: 1, prelimHrs: 1 }, scrapDefaultHrs: 2 };
-  profilePics = {};
-  syncAllDeptDropdowns();
-}
-window.enterDemoMode = function () {
-  IS_DEMO = true;
-  document.getElementById('demo-banner')?.classList.add('on');
-  seedDemoData();
-  sv('li-id', 'DEV001'); sv('li-pw', 'dev123');
-  doLogin();
-};
-window.exitDemoMode = function () {
-  IS_DEMO = false;
-  document.getElementById('demo-banner')?.classList.remove('on');
-  logout();
-};
-
-// ════════════════════════════════════════════════
 //  LOGIN
 // ════════════════════════════════════════════════
-function ql(id, role) { sv('li-id', id); sv('li-pw', role === 'dev' ? (settings.passwords?.dev || 'dev123') : 'demo'); doLogin(); }
-window.ql = ql;
 
 async function loadAllData() {
   const [ts, ls, cs, ms, ps, es, as_, ds, sps] = await Promise.all([
@@ -4785,18 +4712,13 @@ async function doLogin() {
   if (btn) { btn.classList.add('loading'); btn.disabled = true; }
   if (lbtxt) lbtxt.textContent = 'Signing in…';
   showLoading('Loading ProTrack…');
-  if (!IS_DEMO) {
-    try { await loadAllData(); } catch (e) { console.warn('Load failed:', e); hideLoading(); if (btn) { btn.classList.remove('loading'); btn.disabled = false; } toast('Could not reach the database. Check your connection or try Demo Mode.', 'error'); return; }
-  }
+  try { await loadAllData(); } catch (e) { console.warn('Load failed:', e); hideLoading(); if (btn) { btn.classList.remove('loading'); btn.disabled = false; } toast('Could not reach the database. Check your connection.', 'error'); return; }
   syncAllDeptDropdowns();
   let user = null, role = '';
-  if (id === 'DEV001' && pwd === (settings.passwords?.dev || 'dev123')) { user = { id: 'DEV001', name: 'Developer Admin' }; role = 'dev'; }
-  else {
-    user = techs.find(t => t.id === id && t.password === pwd); if (user) role = 'tech';
-    if (!user) { user = leaders.find(l => l.id === id && l.password === pwd); if (user) role = 'lead'; }
-    if (!user) { user = controllers.find(c => c.id === id && c.password === pwd); if (user) role = 'ctrl'; }
-    if (!user) { user = managers.find(m => m.id === id && m.password === pwd); if (user) role = 'mgr'; }
-  }
+  user = techs.find(t => t.id === id && t.password === pwd); if (user) role = 'tech';
+  if (!user) { user = leaders.find(l => l.id === id && l.password === pwd); if (user) role = 'lead'; }
+  if (!user) { user = controllers.find(c => c.id === id && c.password === pwd); if (user) role = 'ctrl'; }
+  if (!user) { user = managers.find(m => m.id === id && m.password === pwd); if (user) role = 'mgr'; }
   if (btn) { btn.classList.remove('loading'); btn.disabled = false; }
   if (lbtxt) lbtxt.textContent = 'Sign In →';
   if (!user) {
@@ -4842,9 +4764,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const mf = document.getElementById('ms-month-filter'); if (mf && !mf.value) mf.value = todayEAT().slice(0, 7);
   stxt('ver-current', 'v' + APP_VERSION);
   if (!sb) {
-    // No Supabase configured on this page — offer Demo Mode as the primary path.
+    // No Supabase configured on this page
     const hint = document.getElementById('login-attempts');
-    if (hint) { hint.style.display = 'block'; hint.textContent = 'No database connected. Use "Try Demo Mode" below to explore ProTrack offline.'; }
+    if (hint) { hint.style.display = 'block'; hint.textContent = 'No database connected. Please check your Supabase configuration.'; }
   }
 });
 
