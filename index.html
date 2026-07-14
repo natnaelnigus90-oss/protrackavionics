@@ -1195,7 +1195,7 @@ input[type="date"] {
 
 
 /* ═══════════════════════════════════════
-   CONSOLIDATED ADDITIONS — Demo Mode, Departments, Managers
+   CONSOLIDATED ADDITIONS — Departments, Managers
 ═══════════════════════════════════════ */
 
 .dept-card{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--bdr);gap:10px;}
@@ -1289,9 +1289,7 @@ input[type="date"] {
 <span class="lbtn-spinner"></span>
 <span id="lbtn-txt">Sign In →</span>
 </button>
-<button class="demo-btn" onclick="enterDemoMode()" type="button">🧪 Try Demo Mode (no login required)</button>
 <div class="login-attempts" id="login-attempts"></div>
-<div class="ql">Quick fill: <a onclick="ql('T1001','tech')">Tech demo</a>  ·  <a onclick="ql('TL001','lead')">Leader demo</a></div>
 </div>
 <div class="ver-badge">
 <div class="ver-pill" onclick="toggleVer()">
@@ -3704,7 +3702,7 @@ window.saveTech = async function () {
   const id = sanitize(document.getElementById('mt-id')?.value), name = sanitize(document.getElementById('mt-name')?.value);
   if (!id || !name) { toast('ID and Name required', 'error'); return; }
   const target = sanitizeNum(document.getElementById('mt-target')?.value) || 160;
-  const status = document.getElementById('mt-status')?.value, pwd = sanitize(document.getElementById('mt-pwd')?.value) || 'demo';
+  const status = document.getElementById('mt-status')?.value, pwd = sanitize(document.getElementById('mt-pwd')?.value) || '';
   const dept = document.getElementById('mt-dept')?.value || departments[0]?.id || '';
   const roleAccessKey = normalizeRoleAccessKey(document.getElementById('mt-role-access')?.value || 'tech');
   const allowedRoles = ROLE_ACCESS_PROFILES[roleAccessKey].slice();
@@ -3769,7 +3767,7 @@ function renderLeaders() {
 }
 window.renderLeaders = renderLeaders;
 window.openAddLeader = function () {
-  editLeaderId = null; ['ml-id', 'ml-name', 'ml-email'].forEach(id => sv(id, '')); sv('ml-pwd', 'demo');
+  editLeaderId = null; ['ml-id', 'ml-name', 'ml-email', 'ml-pwd'].forEach(id => sv(id, ''));
   const st = document.getElementById('ml-status'); if (st) st.value = 'active';
   const dp = document.getElementById('ml-dept'); if (dp) dp.value = departments[0]?.id || '';
   stxt('ml-title', 'Add Team Leader');
@@ -3817,7 +3815,7 @@ function renderControllers() {
 }
 window.renderControllers = renderControllers;
 window.openAddController = function () {
-  editControllerId = null; ['mc-id', 'mc-name', 'mc-email'].forEach(id => sv(id, '')); sv('mc-pwd', 'demo');
+  editControllerId = null; ['mc-id', 'mc-name', 'mc-email', 'mc-pwd'].forEach(id => sv(id, ''));
   const st = document.getElementById('mc-status'); if (st) st.value = 'active';
   const dp = document.getElementById('mc-dept'); if (dp) dp.value = departments[0]?.id || '';
   stxt('mc-title', 'Add Production Controller');
@@ -3868,7 +3866,7 @@ function renderManagers() {
 }
 window.renderManagers = renderManagers;
 function clearManagerForm() {
-  editManagerId = null; ['mm-id', 'mm-name'].forEach(id => sv(id, '')); sv('mm-pwd', 'demo');
+  editManagerId = null; ['mm-id', 'mm-name', 'mm-pwd'].forEach(id => sv(id, ''));
   const st = document.getElementById('mm-status'); if (st) st.value = 'active';
   stxt('mm-form-title', '➕ New Manager'); renderManagerDeptChecks([]);
 }
