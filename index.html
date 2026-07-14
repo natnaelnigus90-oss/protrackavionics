@@ -4321,9 +4321,14 @@ window.onSpDateChange = onSpDateChange;
 
 function renderShopPerformance() {
   const sel = document.getElementById('sp-dept'); if (!sel) return;
+  const currentValue = sel.value;
   const opts = shopDeptOptionsForUser();
   sel.innerHTML = opts.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('') || '<option value="">No department assigned</option>';
-  if (!sel.value && opts[0]) sel.value = opts[0].id;
+  if (currentValue && opts.some(o => o.id === currentValue)) {
+    sel.value = currentValue;
+  } else if (!sel.value && opts[0]) {
+    sel.value = opts[0].id;
+  }
   const dept = sel.value;
 
   const noteEl = document.getElementById('sp-alert-txt');
