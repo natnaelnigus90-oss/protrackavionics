@@ -458,6 +458,27 @@ tbody tr:hover td{background:var(--card2);}
 .skip-link:focus{left:6px;}
 /* Visible focus ring for keyboard navigation */
 :focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+/* Production import & shop performance UX enhancements */
+.prod-import-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.prod-import-row-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.2px;background:var(--card2);color:var(--tx2);border:1px solid var(--bdr);white-space:nowrap;}
+.prod-import-row-badge.error{background:var(--rdim);color:var(--rose);border-color:rgba(244,63,94,.25);} 
+.prod-import-row-badge.warn{background:var(--adim);color:var(--amber);border-color:rgba(245,158,11,.25);} 
+.prod-import-row-badge.good{background:var(--gdim);color:var(--green);border-color:rgba(16,185,129,.25);} 
+.prod-import-detail{font-size:12px;color:var(--tx3);margin-top:6px;line-height:1.45;}
+.prod-import-fill{color:var(--blue);font-weight:700;}
+.sp-weekly-grid{display:grid;grid-template-columns:minmax(140px,1.2fr) repeat(var(--week-count), minmax(120px,1fr));gap:8px;overflow:auto;padding-bottom:4px;}
+.sp-weekly-grid .sp-grid-head,.sp-weekly-grid .sp-grid-cell,.sp-weekly-grid .sp-grid-total{background:var(--card);border:1px solid var(--bdr);border-radius:10px;padding:8px 10px;min-width:120px;}
+.sp-weekly-grid .sp-grid-head{font-size:12px;font-weight:700;color:var(--tx2);position:sticky;top:0;background:var(--card2);z-index:1;}
+.sp-weekly-grid .sp-grid-label{font-weight:700;color:var(--tx);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sp-weekly-grid .sp-grid-value{font-size:15px;font-weight:800;color:var(--green);margin-top:4px;}
+.sp-weekly-grid .sp-grid-meta{font-size:11px;color:var(--tx3);margin-top:2px;}
+.sp-weekly-grid .sp-grid-cell.warn .sp-grid-value{color:var(--amber);} 
+.sp-weekly-grid .sp-grid-cell.error .sp-grid-value{color:var(--rose);} 
+.sp-weekly-grid .sp-grid-total{font-weight:700;color:var(--blue);} 
+.sp-weekly-grid .sp-grid-spark{display:flex;align-items:flex-end;gap:3px;height:24px;margin-top:6px;}
+.sp-weekly-grid .sp-grid-spark span{flex:1;border-radius:999px;background:linear-gradient(180deg,var(--blue),var(--cyan));opacity:.85;min-height:4px;}
+.sp-range-summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;font-size:12px;color:var(--tx2);} 
+.sp-range-summary .sp-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:var(--card2);border:1px solid var(--bdr);}
 /* Logout button – make it feel less dangerous, clarify intent */
 .lob{background:none;border:1px solid transparent;color:var(--tx3);cursor:pointer;font-size:16px;padding:5px 7px;border-radius:6px;transition:all .15s;line-height:1;}
 .lob:hover{color:var(--rose);border-color:rgba(244,63,94,.3);background:var(--rdim);}
@@ -1593,13 +1614,16 @@ input[type="date"] {
 <input accept=".xlsx,.xls,.csv" id="prod-import-input" onchange="previewProductionImport(this)" style="display:none;" type="file"/>
 </div>
 <div id="prod-import-summary" style="color:var(--tx2);font-size:13px;margin-top:12px;">Click <strong>Import File</strong> to begin. You can upload, preview, and commit entries step by step.</div>
+<div id="prod-import-skipped" style="margin-top:8px;color:var(--tx3);font-size:13px;"></div>
 </div>
 </div>
 <div class="card">
 <div class="ch">
 <span class="ct">Import Preview / Actions</span>
-<div class="export-group">
+<div class="prod-import-actions">
 <button class="btn bo bsm" onclick="clearProductionImportPreview()">Clear Preview</button>
+<button class="btn bo bsm" onclick="validateProductionImportPreview()">Validate all</button>
+<button class="btn bo bsm" onclick="toggleProdImportAutoSkip()">Auto-skip empty rows</button>
 <button class="btn bp bsm" data-action="productionImport.commit" onclick="commitProductionImport()">Try Import</button>
 </div>
 </div>
@@ -1607,7 +1631,7 @@ input[type="date"] {
 <div class="tw">
 <table>
 <thead>
-<tr><th>Row</th><th>Date Completed</th><th>Employee</th><th>Role</th><th>Task Code</th><th>Part #</th><th>Hours</th><th>Status / Action</th></tr>
+<tr><th>Row</th><th>Date</th><th>Employee</th><th>Role</th><th>Task Code</th><th>Part #</th><th>Hours</th><th>Validation</th></tr>
 </thead>
 <tbody id="prod-import-body"></tbody>
 </table>
@@ -1616,6 +1640,8 @@ input[type="date"] {
 <div class="ei">📄</div>
 <div class="et">No preview loaded yet.</div>
 </div>
+<div id="prod-import-preview-summary" style="margin-top:12px;color:var(--tx2);font-size:13px;"></div>
+<div id="prod-import-skipped" style="margin-top:8px;color:var(--tx3);font-size:13px;"></div>
 </div>
 </div>
 </div>
@@ -2073,7 +2099,7 @@ input[type="date"] {
 <div class="fgroup" style="max-width:200px;"><label class="flabel">From Date</label><input class="fsel" id="sr-dt-from" onchange="renderShopReport()" type="date"/></div>
 <div class="fgroup" style="max-width:200px;"><label class="flabel">To Date</label><input class="fsel" id="sr-dt-to" onchange="renderShopReport()" type="date"/></div>
 <select class="fsel" id="sr-dt-preset" onchange="applySRPreset(this.value)" title="Quick range">
-<option value="">Quick Range…</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option><option value="all">All Time</option>
+<option value="">Quick Range…</option><option value="this-month">This Month</option><option value="last-month">Last Month</option><option value="quarter">Quarter-to-Date</option><option value="last-6">Last 6 Months</option><option value="ytd">Year-to-Date</option><option value="all">All Time</option>
 </select>
 <button class="btn bo bsm" onclick="renderShopReport()">⟳</button>
 <div class="export-group" style="margin-left:auto;">
@@ -2084,8 +2110,12 @@ input[type="date"] {
 </div>
 <div class="card" id="sr-card">
 <div class="ch"><span class="ct">🏭 Shop Performance Report</span></div>
-<div class="tw"><table><thead><tr><th>Department</th><th>Output Target</th><th>Actual Output</th><th>Attainment</th><th>Avg TAT</th><th>Total Inventory</th><th>WFP</th><th>Weeks Logged</th></tr></thead>
+<div class="cb">
+<div class="sp-range-summary" id="sp-range-summary"></div>
+<div class="sp-weekly-grid" id="sp-weekly-grid" style="--week-count: 0;"></div>
+<div class="tw" style="margin-top:12px;"><table><thead><tr><th>Department</th><th>Output Target</th><th>Actual Output</th><th>Attainment</th><th>Avg TAT</th><th>Total Inventory</th><th>WFP</th><th>Weeks Logged</th></tr></thead>
 <tbody id="sr-body"></tbody></table></div>
+</div>
 </div>
 </div>
 </div>
@@ -2284,6 +2314,12 @@ input[type="date"] {
 </div>
 <div class="mbody"><div id="imp-sum-body"></div></div>
 <div class="mfoot"><button class="btn bp" onclick="closeModal('m-import-summary')">Done</button></div>
+</div></div>
+<div class="mbg" id="m-prod-import-help">
+<div class="modal msm">
+<div class="mhd"><div><div class="mttl">Import preview guide</div><div class="msub">Review and resolve rows before committing</div></div><button class="mxb" onclick="closeModal('m-prod-import-help')">✕</button></div>
+<div class="mbody"><div class="al al-a"><span class="al-ico">💡</span><div>Use <strong>Validate all</strong> to check missing fields and duplicates. Missing values can be filled inline, and duplicate groups can be kept as first/last rows, merged, or removed before import.</div></div></div>
+<div class="mfoot"><button class="btn bp" onclick="closeModal('m-prod-import-help')">Got it</button></div>
 </div></div>
 
 <script>
@@ -4137,7 +4173,7 @@ window.clearLeEntry = clearLeEntry;
 // ════════════════════════════════════════════════
 //  PRODUCTION IMPORT (Excel/CSV → pending entries)
 // ════════════════════════════════════════════════
-let productionImportState = { fileName: '', rows: [], preview: [] };
+let productionImportState = { fileName: '', rows: [], preview: [], autoSkipEmpty: true };
 function buildEntriesFromRow(row) {
   const techIdRaw = String(row.TechID || row.EmployeeID || row['Employee ID'] || row.ID || '').trim();
   const tech = techs.find(t => t.id.toLowerCase() === techIdRaw.toLowerCase()) || techs.find(t => t.name.toLowerCase() === String(row.TechName || row.Employee || '').toLowerCase());
@@ -4145,32 +4181,157 @@ function buildEntriesFromRow(row) {
   const part = parts.find(p => p.num.toLowerCase() === partNum.toLowerCase());
   const taskCode = String(row.TaskCode || row['Task Code'] || row.JIC || '').trim().toUpperCase();
   const role = ROLES.find(r => r.toLowerCase() === String(row.Role || row.JobRole || 'Technician').trim().toLowerCase()) || 'Technician';
+  const date = String(row.Date || row.Time || row['Date Completed'] || '').slice(0, 10);
+  const hoursValue = parseFloat(row.Hours || row['Hours'] || row.Duration || row['Duration Hours'] || '0');
   if (!tech || !part || !taskCode) return [];
-  const hours = part ? calcPoolHrs(part, role, taskCode) : parseFloat(row.Hours) || 0;
+  const hours = part ? calcPoolHrs(part, role, taskCode) : (!isNaN(hoursValue) ? hoursValue : 0);
   return [{
     techId: tech.id, techName: tech.name, pname: part.name, pnum: part.num, taskCode, jobRole: role,
     jobType: String(row.Type || 'completed').toLowerCase().startsWith('scr') ? 'scrap' : 'completed',
-    time: String(row.Date || row.Time || todayEAT()).slice(0, 10), hours, stdHours: part.hours, ata: part.ata,
+    time: date || todayEAT(), hours, stdHours: part.hours, ata: part.ata,
     approvalStatus: 'pending', submittedBy: CU?.name || '', submittedByRole: CR || '', dept: tech.department || ''
   }];
 }
 window.buildEntriesFromRow = buildEntriesFromRow;
-function prodImportRowStatus(entry) { return (!entry || !entry.techId || !entry.pnum) ? 'Missing data' : 'Saved as pending'; }
+function normalizeImportRecord(item) {
+  const entry = item.entry || {};
+  const required = [
+    ['Task code', entry.taskCode],
+    ['Role', entry.jobRole],
+    ['Part number', entry.pnum],
+    ['Date', entry.time],
+    ['Technician ID', entry.techId]
+  ];
+  const missing = required.filter(([, value]) => !String(value || '').trim()).map(([label]) => label);
+  const normalized = { ...entry, taskCode: String(entry.taskCode || '').trim().toUpperCase(), jobRole: String(entry.jobRole || '').trim(), pnum: String(entry.pnum || '').trim(), time: String(entry.time || '').slice(0, 10) };
+  return { ...item, entry: normalized, missingRequired: missing, isEmptyRow: !Object.values(normalized).some(v => String(v || '').trim()) };
+}
+function isImportDuplicatePair(left, right) {
+  if (!left || !right) return false;
+  const a = { taskCode: String(left.taskCode || '').trim().toUpperCase(), role: String(left.jobRole || '').trim().toLowerCase(), partNum: String(left.pnum || '').trim().toLowerCase(), date: String(left.time || '').slice(0, 10) };
+  const b = { taskCode: String(right.taskCode || '').trim().toUpperCase(), role: String(right.jobRole || '').trim().toLowerCase(), partNum: String(right.pnum || '').trim().toLowerCase(), date: String(right.time || '').slice(0, 10) };
+  return a.taskCode && a.role && a.partNum && b.taskCode && b.role && b.partNum && a.taskCode === b.taskCode && a.role === b.role && a.partNum === b.partNum && a.date === b.date;
+}
+function resolveProductionImportDuplicate(rowIndex, action) {
+  const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const target = preview.find(item => String(item.row) === String(rowIndex));
+  if (!target) return;
+  const group = preview.filter(item => item && item !== target && isImportDuplicatePair(item.entry, target.entry));
+  const members = [target, ...group];
+  if (!members.length) return;
+  const keep = action === 'keep-last' ? members[members.length - 1] : members[0];
+  members.forEach((item, idx) => {
+    if (item === keep) {
+      item.status = 'Ready to import';
+      item.reason = action === 'merge' ? 'Merged duplicate group' : 'Duplicate resolved';
+      item.canImport = true;
+      return;
+    }
+    if (action === 'merge') {
+      const base = keep.entry || {};
+      const current = item.entry || {};
+      keep.entry = { ...base, hours: (parseFloat(base.hours) || 0) + (parseFloat(current.hours) || 0), count: (parseInt(base.count || 0, 10) || 0) + (parseInt(current.count || 0, 10) || 0), notes: [base.notes, current.notes].filter(Boolean).join(' | ') };
+      item.status = 'Removed by merge';
+      item.reason = 'Merged into primary row';
+      item.canImport = false;
+    } else if (action === 'remove') {
+      item.status = 'Removed by user';
+      item.reason = 'Duplicate resolved by removing row';
+      item.canImport = false;
+    } else {
+      item.status = 'Removed by user';
+      item.reason = 'Duplicate resolved by keeping primary row';
+      item.canImport = false;
+    }
+  });
+  productionImportState.preview = preview;
+  validateProductionImportPreview();
+}
+window.resolveProductionImportDuplicate = resolveProductionImportDuplicate;
+function fillProductionImportRow(rowIndex) {
+  const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const target = preview.find(item => String(item.row) === String(rowIndex));
+  if (!target) return;
+  const normalized = normalizeImportRecord(target);
+  const field = normalized.missingRequired?.[0] || 'Task code';
+  const promptLabel = field === 'Technician ID' ? 'Technician ID' : field;
+  const value = window.prompt(`Enter ${promptLabel}:`);
+  if (!value) return;
+  const nextEntry = { ...normalized.entry };
+  if (field === 'Task code') nextEntry.taskCode = value.toUpperCase();
+  else if (field === 'Role') nextEntry.jobRole = value;
+  else if (field === 'Part number') nextEntry.pnum = value;
+  else if (field === 'Date') nextEntry.time = value.slice(0, 10);
+  else if (field === 'Technician ID') nextEntry.techId = value;
+  target.entry = nextEntry;
+  productionImportState.preview = preview;
+  validateProductionImportPreview();
+}
+window.fillProductionImportRow = fillProductionImportRow;
+function validateProductionImportPreview() {
+  const items = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const next = items.map(normalizeImportRecord);
+  next.forEach(item => {
+    const entry = item.entry || {};
+    const emptyRow = item.isEmptyRow || (!entry.taskCode && !entry.jobRole && !entry.pnum && !entry.techId && !entry.time);
+    if (emptyRow && productionImportState.autoSkipEmpty !== false) {
+      item.status = 'Auto-skipped';
+      item.reason = 'Empty row skipped';
+      item.canImport = false;
+      return;
+    }
+    const missing = item.missingRequired || [];
+    if (missing.length) {
+      item.status = 'Missing required field';
+      item.reason = missing.join(', ');
+      item.canImport = false;
+      return;
+    }
+    if (isDuplicateEntry(entry)) {
+      item.status = 'Duplicate with existing data';
+      item.reason = 'Matches an existing entry';
+      item.canImport = false;
+      return;
+    }
+    item.status = 'Ready to import';
+    item.reason = '';
+    item.canImport = true;
+  });
+  productionImportState.preview = next;
+  renderImportProduction();
+  toast('Validation complete');
+}
+window.validateProductionImportPreview = validateProductionImportPreview;
+function toggleProdImportAutoSkip() {
+  productionImportState.autoSkipEmpty = productionImportState.autoSkipEmpty !== false;
+  toast(productionImportState.autoSkipEmpty ? 'Auto-skip enabled' : 'Auto-skip disabled');
+  validateProductionImportPreview();
+}
+window.toggleProdImportAutoSkip = toggleProdImportAutoSkip;
 function renderImportProduction() {
-  const body = document.getElementById('prod-import-body'), empty = document.getElementById('prod-import-empty'); if (!body || !empty) return;
+  const body = document.getElementById('prod-import-body'), empty = document.getElementById('prod-import-empty'), summary = document.getElementById('prod-import-summary'); if (!body || !empty) return;
   const rows = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
   empty.style.display = rows.length ? 'none' : 'block';
+  const ready = rows.filter(r => r.canImport).length;
+  const errors = rows.filter(r => !r.canImport).length;
+  if (summary) summary.innerHTML = `<strong>Preview:</strong> ${rows.length} row${rows.length === 1 ? '' : 's'} • ${ready} ready • ${errors} blocked`;
   body.innerHTML = rows.map((r, idx) => {
-    const entry = r.entry || {}, status = r.status || prodImportRowStatus(entry);
-    const action = status === 'Missing data' ? `<span class="bdg bred">Missing data</span>` : `<span class="bdg bgr">Saved as pending</span>`;
-    return `<tr><td class="mono">${r.row || idx + 1}</td><td class="mono">${String(entry.time || '').slice(0, 10) || '—'}</td>
+    const item = normalizeImportRecord(r);
+    const entry = item.entry || {};
+    const status = item.status || 'Ready to import';
+    const badgeClass = status === 'Ready to import' ? 'good' : (status === 'Auto-skipped' ? 'warn' : 'error');
+    const badge = `<span class="prod-import-row-badge ${badgeClass}">${escapeHtml(status)}</span>`;
+    const fillAction = item.missingRequired && item.missingRequired.length ? `<div class="prod-import-detail"><button class="btn bo bsm" style="padding:3px 8px;" onclick="fillProductionImportRow('${item.row || idx + 1}')">Fill</button> ${escapeHtml(item.missingRequired.join(', '))}</div>` : '';
+    const duplicateActions = item.status && String(item.status).toLowerCase().indexOf('duplicate') !== -1 ? `<div class="prod-import-detail"><button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.row || idx + 1}', 'keep-first')">Keep first</button> <button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.row || idx + 1}', 'keep-last')">Keep last</button> <button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.row || idx + 1}', 'merge')">Merge</button> <button class="btn bd bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.row || idx + 1}', 'remove')">Remove</button></div>` : '';
+    const detail = item.reason ? `<div class="prod-import-detail">${escapeHtml(item.reason)}</div>` : '';
+    return `<tr><td class="mono">${item.row || idx + 1}</td><td class="mono">${String(entry.time || '').slice(0, 10) || '—'}</td>
       <td>${escapeHtml(entry.techName || '—')}</td><td>${escapeHtml(entry.jobRole || '—')}</td>
       <td class="mono" style="color:var(--blue);">${escapeHtml(entry.taskCode || '—')}</td><td class="mono" style="color:var(--amber);">${escapeHtml(entry.pnum || '—')}</td>
-      <td class="mono">${(entry.hours || 0).toFixed(2)}h</td><td>${action}</td></tr>`;
+      <td class="mono">${(entry.hours || 0).toFixed(2)}h</td><td>${badge}${fillAction}${duplicateActions}${detail}</td></tr>`;
   }).join('') || '';
 }
 window.renderImportProduction = renderImportProduction;
-function clearProductionImportPreview() { productionImportState = { fileName: '', rows: [], preview: [] }; const input = document.getElementById('prod-import-input'); if (input) input.value = ''; renderImportProduction(); }
+function clearProductionImportPreview() { productionImportState = { fileName: '', rows: [], preview: [], autoSkipEmpty: true }; const input = document.getElementById('prod-import-input'); if (input) input.value = ''; renderImportProduction(); }
 window.clearProductionImportPreview = clearProductionImportPreview;
 window.clearProductionImportModal = clearProductionImportPreview;
 window.downloadProdImportTemplate = function () {
@@ -4187,11 +4348,12 @@ async function previewProductionImport(input) {
     const preview = [];
     rows.forEach((row, idx) => {
       const built = buildEntriesFromRow(row) || [];
-      if (!built.length) preview.push({ row: idx + 2, status: 'Missing data', entry: {} });
-      else built.forEach(entry => preview.push({ row: idx + 2, status: 'Saved as pending', entry }));
+      if (!built.length) preview.push({ row: idx + 2, status: 'Missing required field', reason: 'Missing tech, part or task code', entry: { taskCode: String(row.TaskCode || row['Task Code'] || row.JIC || '').trim().toUpperCase(), jobRole: String(row.Role || row.JobRole || 'Technician').trim(), pnum: String(row.PartNum || row.Part || row['Part Number'] || '').trim(), time: String(row.Date || row.Time || row['Date Completed'] || '').slice(0, 10), techId: String(row.TechID || row.EmployeeID || row['Employee ID'] || row.ID || '').trim(), techName: String(row.TechName || row.Employee || '').trim() } });
+      else built.forEach(entry => preview.push({ row: idx + 2, status: 'Pending validation', entry }));
     });
-    productionImportState = { fileName: file.name, rows, preview };
-    renderImportProduction();
+    productionImportState = { fileName: file.name, rows, preview, autoSkipEmpty: true };
+    validateProductionImportPreview();
+    openModal('m-prod-import-help');
     toast(`Preview ready: ${preview.length} row${preview.length === 1 ? '' : 's'}`);
   } catch (err) { console.error(err); toast('Preview failed', 'error'); } finally { if (input) input.value = ''; hideLoading(); }
 }
@@ -4202,14 +4364,20 @@ async function commitProductionImport() {
   if (!preview.length) { toast('Upload a file first', 'error'); return; }
   try {
     showLoading('Importing production...');
-    let created = 0, skipped = 0;
+    let created = 0, skipped = 0; const skippedList = [];
     for (const item of preview) {
-      const entry = item.entry || {};
-      if (!entry.techId || !entry.taskCode) { skipped++; continue; }
-      if (isDuplicateEntry(entry)) { skipped++; continue; }
+      const normalized = normalizeImportRecord(item);
+      const entry = normalized.entry || {};
+      const rowNo = item.row || '-';
+      if (!normalized.canImport && !(productionImportState.autoSkipEmpty === false && normalized.isEmptyRow)) {
+        skipped++; skippedList.push({ row: rowNo, reason: normalized.reason || 'Blocked by validation' }); continue;
+      }
+      if (!entry.techId || !entry.taskCode || !entry.pnum || !entry.time) { skipped++; skippedList.push({ row: rowNo, reason: 'Missing required fields' }); continue; }
       const saved = await DB.upsert('entries', entry); entries.unshift(saved); created++;
     }
-    toast(`Imported ${created} entries${skipped ? `, skipped ${skipped}` : ''}`);
+    const summary = `Imported ${created} entries${skipped ? `, skipped ${skipped}` : ''}`;
+    toast(summary);
+    renderProdImportReport({ created, skipped, skippedList });
     clearProductionImportPreview();
     if (canManageEntriesUI()) renderAllEntries();
   } catch (err) { console.error(err); toast('Production import failed', 'error'); } finally { hideLoading(); }
@@ -4219,6 +4387,20 @@ window.commitProdImportFromModal = commitProductionImport;
 window.commitProdImportResolved = commitProductionImport;
 window.showProdImportColumns = function () { toast('Expected columns: TechID, TaskCode, Role, PartNum, Type, Date', 'info'); };
 window.openProductionImportModal = function () { document.getElementById('prod-import-input')?.click(); };
+
+function renderProdImportReport(report) {
+  const el = document.getElementById('prod-import-skipped'); if (!el) return;
+  if (!report || (!report.skipped && !report.created)) { el.innerHTML = ''; return; }
+  const { created = 0, skipped = 0, skippedList = [] } = report;
+  let html = `<div><strong>Import summary:</strong> ${created} imported${skipped ? `, ${skipped} skipped` : ''}.</div>`;
+  if (skippedList && skippedList.length) {
+    html += `<div style="margin-top:8px;font-weight:700;">Skipped rows</div><div style="margin-top:6px;max-height:220px;overflow:auto;border:1px solid var(--bdr);padding:8px;border-radius:8px;background:var(--inp-bg)">`;
+    html += `<table style="width:100%;font-size:13px;"><thead><tr><th style="text-align:left;width:60px">Row</th><th style="text-align:left">Reason</th></tr></thead><tbody>`;
+    skippedList.forEach(s => { html += `<tr><td class="mono">${s.row}</td><td>${escapeHtml(s.reason || '')}</td></tr>`; });
+    html += `</tbody></table></div>`;
+  }
+  el.innerHTML = html;
+}
 
 // ════════════════════════════════════════════════
 //  BULK IMPORT: Technicians / Parts (Excel/CSV)
@@ -4427,8 +4609,67 @@ function renderShopPerfHistory(dept) {
 // ════════════════════════════════════════════════
 //  SHOP REPORT (aggregate across departments/weeks)
 // ════════════════════════════════════════════════
-function applySRPreset(v) { setUIRange('sr', v); renderShopReport(); }
+function applySRPreset(v) {
+  const preset = v || '';
+  if (preset === 'this-month') setUIRange('sr', 'month');
+  else if (preset === 'last-month') {
+    const now = new Date(); const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const fromEl = document.getElementById('sr-dt-from'); const toEl = document.getElementById('sr-dt-to');
+    if (fromEl && toEl) {
+      fromEl.value = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-01`;
+      toEl.value = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(new Date(prev.getFullYear(), prev.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
+    }
+  }
+  else if (preset === 'quarter') {
+    const now = new Date(); const startMonth = Math.floor(now.getMonth() / 3) * 3; const start = new Date(now.getFullYear(), startMonth, 1);
+    const fromEl = document.getElementById('sr-dt-from'); const toEl = document.getElementById('sr-dt-to');
+    if (fromEl && toEl) { fromEl.value = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-01`; toEl.value = todayEAT(); }
+  }
+  else if (preset === 'last-6') {
+    const now = new Date(); const from = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const fromEl = document.getElementById('sr-dt-from'); const toEl = document.getElementById('sr-dt-to');
+    if (fromEl && toEl) { fromEl.value = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-01`; toEl.value = todayEAT(); }
+  }
+  else if (preset === 'ytd') {
+    const now = new Date(); const fromEl = document.getElementById('sr-dt-from'); const toEl = document.getElementById('sr-dt-to');
+    if (fromEl && toEl) { fromEl.value = `${now.getFullYear()}-01-01`; toEl.value = todayEAT(); }
+  }
+  else setUIRange('sr', preset);
+  renderShopReport();
+}
 window.applySRPreset = applySRPreset;
+function buildWeeklyGridRows(rows) {
+  const weeks = [];
+  const range = { start: document.getElementById('sr-dt-from')?.value || '', end: document.getElementById('sr-dt-to')?.value || '' };
+  if (!range.start || !range.end) return { weeks: [], rows: [] };
+  const start = new Date(`${range.start}T00:00:00`); const end = new Date(`${range.end}T00:00:00`);
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    const weekStart = new Date(cursor);
+    const weekEnd = new Date(cursor); weekEnd.setDate(weekEnd.getDate() + 6);
+    weeks.push({ label: `${weekStart.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${weekEnd.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`, key: `${weekStart.toISOString().slice(0,10)}` });
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  const scopeIds = shopDeptOptionsForUser().map(d => d.id);
+  const byDept = {};
+  rows.forEach(r => {
+    if (!scopeIds.includes(r.dept)) return;
+    if (!byDept[r.dept]) byDept[r.dept] = { name: deptLabel(r.dept), weeks: {} };
+    const weekKey = `${String(r.weekStart || '').slice(0, 10)}`;
+    if (!byDept[r.dept].weeks[weekKey]) byDept[r.dept].weeks[weekKey] = { target: 0, output: 0, tat: 0, count: 0 };
+    const entry = byDept[r.dept].weeks[weekKey];
+    entry.target += r.weeklyTarget ?? (r.daily || []).reduce((s, d) => s + (d.target || 0), 0);
+    entry.output += r.weeklyOutput ?? (r.daily || []).reduce((s, d) => s + (d.actual || 0), 0);
+    entry.tat += r.weeklyAvgTat || 0;
+    entry.count += 1;
+  });
+  const displayRows = Object.entries(byDept).map(([id, data]) => ({ id, name: data.name, weeks: weeks.map(w => {
+    const weekData = data.weeks[w.key] || { target: 0, output: 0, tat: 0, count: 0 };
+    const attainment = weekData.target ? Math.round((weekData.output / weekData.target) * 100) : 0;
+    return { ...weekData, attainment, label: w.label };
+  }) }));
+  return { weeks, rows: displayRows };
+}
 function renderShopReport() {
   const rr = getUIRange('sr');
   const scopeIds = shopDeptOptionsForUser().map(d => d.id);
@@ -4442,7 +4683,10 @@ function renderShopReport() {
     if (r.weeklyAvgTat) { o.tatSum += r.weeklyAvgTat; o.tatWeeks++; }
     o.inv = r.totalInventory || o.inv; o.wfp = r.wfp || o.wfp; o.weeks += 1;
   });
-  const tbody = document.getElementById('sr-body'); if (!tbody) return;
+  const tbody = document.getElementById('sr-body');
+  const summary = document.getElementById('sp-range-summary');
+  const grid = document.getElementById('sp-weekly-grid');
+  if (!tbody) return;
   const keys = Object.keys(byDept);
   tbody.innerHTML = keys.length ? keys.map(d => {
     const o = byDept[d], attain = o.target ? Math.round(o.output / o.target * 100) : 0, cls = attain >= 100 ? 'bgr' : attain >= 80 ? 'bamb' : 'bred';
@@ -4450,6 +4694,20 @@ function renderShopReport() {
       <td><span class="bdg ${cls}">${attain}%</span></td><td class="mono" style="color:var(--cyan);">${(o.tatWeeks ? o.tatSum / o.tatWeeks : 0).toFixed(1)}d</td>
       <td class="mono">${o.inv}</td><td class="mono">${o.wfp}</td><td class="mono">${o.weeks}</td></tr>`;
   }).join('') : '<tr><td colspan="8" class="empty">No shop performance data in this range</td></tr>';
+  if (summary) summary.innerHTML = `<span class="sp-pill">Range: ${escapeHtml(rr.start || '—')} → ${escapeHtml(rr.end || '—')}</span><span class="sp-pill">Shops: ${keys.length || 0}</span><span class="sp-pill">Weeks: ${Math.max(1, (rows.length ? rows.length : 0))}</span>`;
+  if (grid) {
+    const { weeks, rows: displayRows } = buildWeeklyGridRows(rows);
+    grid.style.setProperty('--week-count', weeks.length || 0);
+    if (!weeks.length) { grid.innerHTML = '<div class="empty">No weekly buckets available</div>'; }
+    else {
+      const head = ['Shop / Dept', ...weeks.map(w => `<div class="sp-grid-head">${escapeHtml(w.label)}</div>`)].join('');
+      const body = displayRows.map(row => {
+        const cells = row.weeks.map(week => `<div class="sp-grid-cell ${week.attainment < 80 ? 'error' : week.attainment < 100 ? 'warn' : ''}"><div class="sp-grid-label">${escapeHtml(row.name)}</div><div class="sp-grid-value">${week.output}</div><div class="sp-grid-meta">${week.attainment}% • ${week.target} tgt</div><div class="sp-grid-spark">${Array.from({ length: 5 }, (_, i) => `<span style="height:${Math.max(4, (week.output % 20) + 4)}px"></span>`).join('')}</div></div>`).join('');
+        return `<div class="sp-grid-label">${escapeHtml(row.name)}</div>${cells}`;
+      }).join('');
+      grid.innerHTML = `<div class="sp-grid-head">Shop / Dept</div>${head}${body}`;
+    }
+  }
 }
 window.renderShopReport = renderShopReport;
 window.exportShopReport = async function (format) {
