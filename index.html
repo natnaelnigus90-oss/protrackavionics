@@ -478,7 +478,13 @@ tbody tr:hover td{background:var(--card2);}
 .sp-weekly-grid .sp-grid-spark{display:flex;align-items:flex-end;gap:3px;height:24px;margin-top:6px;}
 .sp-weekly-grid .sp-grid-spark span{flex:1;border-radius:999px;background:linear-gradient(180deg,var(--blue),var(--cyan));opacity:.85;min-height:4px;}
 .sp-range-summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;font-size:12px;color:var(--tx2);} 
-.sp-range-summary .sp-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:var(--card2);border:1px solid var(--bdr);}
+.sp-range-summary .sp-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:var(--card2);border:1px solid var(--bdr);} 
+.sr-detail-card{background:var(--card2);border:1px solid var(--bdr);border-radius:10px;padding:12px;margin-top:10px;} 
+.sr-detail-card .sr-detail-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;} 
+.sr-detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:8px;} 
+.sr-detail-grid .sr-detail-cell{background:var(--card);border:1px solid var(--bdr);border-radius:8px;padding:8px;} 
+.sr-detail-grid .sr-detail-label{font-size:11px;color:var(--tx3);text-transform:uppercase;letter-spacing:.08em;} 
+.sr-detail-grid .sr-detail-value{font-size:14px;font-weight:700;color:var(--tx);margin-top:3px;}
 /* Logout button – make it feel less dangerous, clarify intent */
 .lob{background:none;border:1px solid transparent;color:var(--tx3);cursor:pointer;font-size:16px;padding:5px 7px;border-radius:6px;transition:all .15s;line-height:1;}
 .lob:hover{color:var(--rose);border-color:rgba(244,63,94,.3);background:var(--rdim);}
@@ -2073,7 +2079,7 @@ input[type="date"] {
 </div>
 </div>
 <div style="display:flex;gap:8px;margin-top:14px;">
-<button class="btn bp" id="sp-save-btn" onclick="saveShopPerformance()">✓ Save Week</button>
+<button class="btn bp" id="sp-save-btn" data-perm="shopperformance:edit" onclick="saveShopPerformance()">✓ Save Week</button>
 </div>
 </div>
 </div>
@@ -2089,7 +2095,7 @@ input[type="date"] {
 </div>
 <div class="card" style="margin-top:14px;">
 <div class="ch"><span class="ct">🗓 Recent Weeks — <span id="sp-dept-label"></span></span></div>
-<div class="tw"><table><thead><tr><th>Week</th><th>Target</th><th>Output</th><th>Avg TAT</th><th>Inventory</th><th>Feedback</th></tr></thead>
+<div class="tw"><table><thead><tr><th>Week</th><th>Target</th><th>Output</th><th>Avg TAT</th><th>Inventory</th><th>Feedback</th><th>Action</th></tr></thead>
 <tbody id="sp-history-body"></tbody></table></div>
 </div>
 </div>
@@ -2113,7 +2119,7 @@ input[type="date"] {
 <div class="cb">
 <div class="sp-range-summary" id="sp-range-summary"></div>
 <div class="sp-weekly-grid" id="sp-weekly-grid" style="--week-count: 0;"></div>
-<div class="tw" style="margin-top:12px;"><table><thead><tr><th>Department</th><th>Output Target</th><th>Actual Output</th><th>Attainment</th><th>Avg TAT</th><th>Total Inventory</th><th>WFP</th><th>Weeks Logged</th></tr></thead>
+<div class="tw" style="margin-top:12px;"><table><thead><tr><th>Department</th><th>Output Target</th><th>Actual Output</th><th>Attainment</th><th>Avg TAT</th><th>Total Inventory</th><th>WFP</th><th>Weeks Logged</th><th>Action</th></tr></thead>
 <tbody id="sr-body"></tbody></table></div>
 </div>
 </div>
@@ -2130,6 +2136,12 @@ input[type="date"] {
 <div class="tbar_ ts" id="tbar"></div>
 </div>
 <!-- MODALS -->
+<div class="mbg" id="m-sr-detail">
+<div class="modal mmd">
+<div class="mhd"><div><div class="mttl">🔎 Shop Report Detail</div><div class="msub">Weekly breakdown for the selected department</div></div><button class="mxb" onclick="closeShopReportDetail()">✕</button></div>
+<div class="mbody" id="m-sr-detail-body"></div>
+</div>
+</div>
 <div class="mbg" id="m-review">
 <div class="modal mmd">
 <div class="mhd"><div><div class="mttl">✅ Confirm Entry</div><div class="msub">Review your data before saving</div></div><button class="mxb" onclick="closeModal('m-review')">✕</button></div>
@@ -4593,6 +4605,30 @@ window.saveShopPerfComment = async function () {
     toast('Feedback saved'); renderShopPerformance();
   } catch (err) { toast('Save failed: ' + err.message, 'error'); }
 };
+function openShopPerformanceWeek(weekStart) {
+  const dept = document.getElementById('sp-dept')?.value;
+  if (!dept) return;
+  const rec = shopPerf.find(s => s.dept === dept && s.weekStart === weekStart);
+  if (!rec) { toast('No saved week found to edit', 'error'); return; }
+  const dateEl = document.getElementById('sp-entry-date');
+  if (dateEl) dateEl.value = weekStart;
+  const fromEl = document.getElementById('sp-week-from'); const toEl = document.getElementById('sp-week-to');
+  if (fromEl) fromEl.value = weekStart;
+  if (toEl) toEl.value = sundayOf(weekStart);
+  sv('sp-week-label', rec.weekLabel || '');
+  sv('sp-total-inv', rec.totalInventory || 0); sv('sp-longest-inv', rec.longestInventory || 0); sv('sp-wfp', rec.wfp || 0);
+  const daily = (rec.daily && rec.daily.length === 7) ? rec.daily : emptyDaily();
+  document.querySelectorAll('.sp-daycard').forEach((card, idx) => {
+    const row = daily[idx] || { target: 0, actual: 0, input: 0, tat: 0 };
+    card.querySelector('.sp-target').value = row.target || 0;
+    card.querySelector('.sp-actual').value = row.actual || 0;
+    card.querySelector('.sp-input').value = row.input || 0;
+    card.querySelector('.sp-tat').value = row.tat || 0;
+  });
+  recalcSpTotals();
+  toast('Week loaded for editing');
+}
+window.openShopPerformanceWeek = openShopPerformanceWeek;
 function renderShopPerfHistory(dept) {
   const tbody = document.getElementById('sp-history-body'); if (!tbody) return;
   const rows = shopPerf.filter(s => s.dept === dept).sort((a, b) => b.weekStart.localeCompare(a.weekStart)).slice(0, 12);
@@ -4600,10 +4636,13 @@ function renderShopPerfHistory(dept) {
     const target = r.weeklyTarget ?? (r.daily || []).reduce((s, d) => s + (d.target || 0), 0);
     const output = r.weeklyOutput ?? (r.daily || []).reduce((s, d) => s + (d.actual || 0), 0);
     const label = r.weekLabel ? `${escapeHtml(r.weekLabel)} · ` : '';
+    const canEditRow = canEditShopPerfData(dept);
     return `<tr><td class="mono">${label}${fmtEAT(r.weekStart, 'date')}</td><td class="mono">${target}</td><td class="mono" style="color:var(--green);font-weight:700;">${output}</td>
       <td class="mono" style="color:var(--cyan);">${(r.weeklyAvgTat || 0).toFixed(1)}d</td><td class="mono">${r.totalInventory || 0}</td>
-      <td style="max-width:220px;font-size:11.5px;color:var(--tx2);">${r.managerComment ? escapeHtml(r.managerComment) : '<span style="color:var(--tx3);">—</span>'}</td></tr>`;
-  }).join('') || '<tr><td colspan="6" class="empty">No weeks logged yet</td></tr>';
+      <td style="max-width:220px;font-size:11.5px;color:var(--tx2);">${r.managerComment ? escapeHtml(r.managerComment) : '<span style="color:var(--tx3);">—</span>'}</td>
+      <td>${canEditRow ? `<button class="btn bo bsm" data-perm="shopperformance:edit" onclick="openShopPerformanceWeek('${r.weekStart}')">✎ Edit</button>` : '<span class="empty">—</span>'}</td></tr>`;
+  }).join('') || '<tr><td colspan="7" class="empty">No weeks logged yet</td></tr>';
+  applyPermVisibility();
 }
 
 // ════════════════════════════════════════════════
@@ -4692,8 +4731,10 @@ function renderShopReport() {
     const o = byDept[d], attain = o.target ? Math.round(o.output / o.target * 100) : 0, cls = attain >= 100 ? 'bgr' : attain >= 80 ? 'bamb' : 'bred';
     return `<tr><td style="font-weight:600;">${deptLabel(d)}</td><td class="mono">${o.target}</td><td class="mono" style="color:var(--green);font-weight:700;">${o.output}</td>
       <td><span class="bdg ${cls}">${attain}%</span></td><td class="mono" style="color:var(--cyan);">${(o.tatWeeks ? o.tatSum / o.tatWeeks : 0).toFixed(1)}d</td>
-      <td class="mono">${o.inv}</td><td class="mono">${o.wfp}</td><td class="mono">${o.weeks}</td></tr>`;
-  }).join('') : '<tr><td colspan="8" class="empty">No shop performance data in this range</td></tr>';
+      <td class="mono">${o.inv}</td><td class="mono">${o.wfp}</td><td class="mono">${o.weeks}</td>
+      <td><button class="btn bo bsm" data-perm="shopreport:view" onclick="openShopReportDetail('${d}')">Detail</button></td></tr>`;
+  }).join('') : '<tr><td colspan="9" class="empty">No shop performance data in this range</td></tr>';
+  applyPermVisibility();
   if (summary) summary.innerHTML = `<span class="sp-pill">Range: ${escapeHtml(rr.start || '—')} → ${escapeHtml(rr.end || '—')}</span><span class="sp-pill">Shops: ${keys.length || 0}</span><span class="sp-pill">Weeks: ${Math.max(1, (rows.length ? rows.length : 0))}</span>`;
   if (grid) {
     const { weeks, rows: displayRows } = buildWeeklyGridRows(rows);
@@ -4710,11 +4751,34 @@ function renderShopReport() {
   }
 }
 window.renderShopReport = renderShopReport;
+function openShopReportDetail(deptId) {
+  const rr = getUIRange('sr');
+  const scopeIds = shopDeptOptionsForUser().map(d => d.id);
+  const rows = shopPerf.filter(s => scopeIds.includes(s.dept) && s.dept === deptId && s.weekStart >= rr.start.slice(0, 10) && s.weekStart <= rr.end.slice(0, 10)).sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+  const body = document.getElementById('m-sr-detail-body');
+  if (!body) return;
+  const cards = rows.length ? rows.map(r => {
+    const weeklyTarget = r.weeklyTarget ?? (r.daily || []).reduce((s, d) => s + (d.target || 0), 0);
+    const weeklyOutput = r.weeklyOutput ?? (r.daily || []).reduce((s, d) => s + (d.actual || 0), 0);
+    const attainment = weeklyTarget ? Math.round((weeklyOutput / weeklyTarget) * 100) : 0;
+    const cls = attainment >= 100 ? 'bgr' : attainment >= 80 ? 'bamb' : 'bred';
+    const daily = r.daily || [];
+    const dayCells = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((dayName, idx) => {
+      const day = daily[idx] || {};
+      return `<div class="sr-day-cell"><div class="sr-day-title">${escapeHtml(dayName)}</div><div class="sr-day-stat"><span>Target</span><b>${day.target ?? 0}</b></div><div class="sr-day-stat"><span>Actual</span><b>${day.actual ?? 0}</b></div><div class="sr-day-stat"><span>Input</span><b>${day.input ?? 0}</b></div><div class="sr-day-stat"><span>TAT</span><b>${Number(day.tat ?? 0).toFixed(1)}d</b></div></div>`;
+    }).join('');
+    return `<div class="sr-record-card"><div class="sr-record-head"><div><div class="sr-dept-name">${escapeHtml(deptLabel(r.dept))}</div><div class="sr-record-meta"><span class="bdg bblu">${escapeHtml(r.weekLabel || fmtEAT(r.weekStart, 'date'))}</span><span class="bdg ${cls}">${attainment}%</span></div></div><div class="sr-record-meta"><span class="bdg bgray">${fmtEAT(r.weekStart, 'date')}</span></div></div><div class="sr-kpis"><div class="sr-day-cell"><div class="sr-day-title">Target</div><div class="sr-day-stat"><b>${weeklyTarget}</b></div></div><div class="sr-day-cell"><div class="sr-day-title">Output</div><div class="sr-day-stat"><b>${weeklyOutput}</b></div></div><div class="sr-day-cell"><div class="sr-day-title">Avg TAT</div><div class="sr-day-stat"><b>${Number(r.weeklyAvgTat || 0).toFixed(1)}d</b></div></div><div class="sr-day-cell"><div class="sr-day-title">Inventory</div><div class="sr-day-stat"><b>${r.totalInventory || 0}</b></div></div><div class="sr-day-cell"><div class="sr-day-title">WFP</div><div class="sr-day-stat"><b>${r.wfp || 0}</b></div></div></div><div class="sr-days-grid">${dayCells}</div>${r.managerComment ? `<div class="sr-mgr-comment-box"><div class="sr-mgr-label">Manager Feedback</div><div style="font-size:13px;color:var(--tx2);">${escapeHtml(r.managerComment)}</div></div>` : ''}</div>`;
+  }).join('') : '<div class="empty">No shop performance entries for this department in the selected range.</div>';
+  body.innerHTML = `<div class="sr-detail-card"><div class="sr-detail-head"><div><div style="font-size:16px;font-weight:800;">${escapeHtml(deptLabel(deptId))}</div><div style="font-size:12px;color:var(--tx3);margin-top:2px;">${escapeHtml(rr.start || '—')} → ${escapeHtml(rr.end || '—')}</div></div><span class="bdg bblu">${rows.length} week${rows.length === 1 ? '' : 's'}</span></div>${cards}</div>`;
+  openModal('m-sr-detail');
+}
+window.openShopReportDetail = openShopReportDetail;
+window.closeShopReportDetail = function () { closeModal('m-sr-detail'); };
 window.exportShopReport = async function (format) {
   if (!canI('shopreport', 'export')) { toast('Not allowed', 'error'); return; }
   const rows = Array.from(document.querySelectorAll('#sr-body tr')).map(tr => Array.from(tr.children).map(td => td.textContent));
   if (format === 'csv') {
-    let csv = 'Department,Output Target,Actual Output,Attainment,Avg TAT,Total Inventory,WFP,Weeks Logged\n';
+    let csv = 'Department,Output Target,Actual Output,Attainment,Avg TAT,Total Inventory,WFP,Weeks Logged,Action\n';
     rows.forEach(r => csv += r.map(c => `"${c}"`).join(',') + '\n');
     dlFile(csv, `shop_report_${todayEAT()}.csv`, 'text/csv'); toast('Exported'); return;
   }
