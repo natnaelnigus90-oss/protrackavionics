@@ -466,17 +466,33 @@ tbody tr:hover td{background:var(--card2);}
 .prod-import-row-badge.good{background:var(--gdim);color:var(--green);border-color:rgba(16,185,129,.25);} 
 .prod-import-detail{font-size:12px;color:var(--tx3);margin-top:6px;line-height:1.45;}
 .prod-import-fill{color:var(--blue);font-weight:700;}
-.sp-weekly-grid{display:grid;grid-template-columns:minmax(140px,1.2fr) repeat(var(--week-count), minmax(120px,1fr));gap:8px;overflow:auto;padding-bottom:4px;}
-.sp-weekly-grid .sp-grid-head,.sp-weekly-grid .sp-grid-cell,.sp-weekly-grid .sp-grid-total{background:var(--card);border:1px solid var(--bdr);border-radius:10px;padding:8px 10px;min-width:120px;}
-.sp-weekly-grid .sp-grid-head{font-size:12px;font-weight:700;color:var(--tx2);position:sticky;top:0;background:var(--card2);z-index:1;}
-.sp-weekly-grid .sp-grid-label{font-weight:700;color:var(--tx);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.sp-weekly-grid .sp-grid-value{font-size:15px;font-weight:800;color:var(--green);margin-top:4px;}
-.sp-weekly-grid .sp-grid-meta{font-size:11px;color:var(--tx3);margin-top:2px;}
-.sp-weekly-grid .sp-grid-cell.warn .sp-grid-value{color:var(--amber);} 
-.sp-weekly-grid .sp-grid-cell.error .sp-grid-value{color:var(--rose);} 
-.sp-weekly-grid .sp-grid-total{font-weight:700;color:var(--blue);} 
-.sp-weekly-grid .sp-grid-spark{display:flex;align-items:flex-end;gap:3px;height:24px;margin-top:6px;}
-.sp-weekly-grid .sp-grid-spark span{flex:1;border-radius:999px;background:linear-gradient(180deg,var(--blue),var(--cyan));opacity:.85;min-height:4px;}
+.sp-weekly-grid{display:block;overflow:auto;padding-bottom:4px;}
+.sp-weekly-summary{display:grid;gap:14px;}
+.sp-week-summary-card{background:var(--card);border:1px solid var(--bdr);border-radius:14px;padding:14px;}
+.sp-week-summary-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;}
+.sp-week-summary-head span{font-weight:800;font-size:14px;}
+.sp-week-summary-badge{background:var(--card2);padding:4px 10px;border-radius:999px;font-size:12px;color:var(--tx2);}
+.sp-week-summary-list{display:grid;gap:10px;}
+.sp-week-box{background:var(--card2);border:1px solid var(--bdr);border-radius:12px;padding:12px;}
+.sp-week-box.error{border-color:rgba(244,63,94,.25);} 
+.sp-week-box.warn{border-color:rgba(245,158,11,.25);} 
+.sp-week-box .sp-week-box-label{font-size:13px;font-weight:700;color:var(--tx);margin-bottom:8px;}
+.sp-week-box-row{display:grid;grid-template-columns:repeat(3,minmax(90px,1fr));gap:10px;}
+.sp-week-box-row div{display:flex;flex-direction:column;gap:4px;}
+.sp-week-box-row span{font-size:11px;color:var(--tx3);}
+.sp-week-box-row strong{font-size:16px;font-weight:800;color:var(--tx);}
+.sp-week-box-meta{margin-top:10px;font-size:12px;color:var(--tx3);}
+.sp-week-summary-footer{margin-top:12px;display:flex;justify-content:flex-end;}
+.sp-week-detail-card{background:var(--card2);border:1px solid var(--bdr);border-radius:12px;padding:14px;margin-top:14px;}
+.sp-week-detail-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;}
+.sp-week-detail-head strong{font-size:14px;}
+.sp-week-detail-sub{font-size:12px;color:var(--tx2);}
+.sp-week-detail-list{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:10px;margin-bottom:12px;}
+.sp-week-detail-list div{background:var(--card);border:1px solid var(--bdr);border-radius:10px;padding:10px;}
+.sp-week-detail-list span{display:block;font-size:11px;color:var(--tx3);margin-bottom:4px;}
+.sp-week-detail-list strong{font-size:16px;font-weight:800;color:var(--tx);}
+.sp-week-detail-actions{display:flex;justify-content:flex-end;}
+.sp-week-detail-actions .btn{min-width:100px;}
 .sp-range-summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;font-size:12px;color:var(--tx2);} 
 .sp-range-summary .sp-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:var(--card2);border:1px solid var(--bdr);} 
 .sr-detail-card{background:var(--card2);border:1px solid var(--bdr);border-radius:10px;padding:12px;margin-top:10px;} 
@@ -2109,7 +2125,6 @@ input[type="date"] {
 </select>
 <button class="btn bo bsm" onclick="renderShopReport()">⟳</button>
 <div class="export-group" style="margin-left:auto;">
-<button class="btn bo bsm" data-perm="shopreport:export" onclick="exportShopReport('image')">🖼 Image</button>
 <button class="btn bo bsm" data-perm="shopreport:export" onclick="exportShopReport('pdf')">⬇ PDF</button>
 <button class="btn bo bsm" data-perm="shopreport:export" onclick="exportShopReport('csv')">⬇ CSV</button>
 </div>
@@ -3768,6 +3783,7 @@ window.saveTech = async function () {
     const pf = document.getElementById('mt-pic')?.files[0];
     if (pf) { const r = new FileReader(); r.onload = async e => await savePic(id, e.target.result); r.readAsDataURL(pf); }
     closeModal('m-tech'); renderTechs();
+    if (typeof productionImportState.importCallback === 'function') { productionImportState.importCallback(); productionImportState.importCallback = null; }
   } catch (err) { toast('Save failed: ' + err.message, 'error'); }
 };
 window.delTech = async function (id) { if (!canI('techs', 'delete')) { toast('Not allowed', 'error'); return; } if (!confirm('Delete this technician?')) return; try { await DB.remove('technicians', id); techs = techs.filter(t => t.id !== id); renderTechs(); toast('Deleted'); } catch (e) { toast('Delete failed', 'error'); } };
@@ -3797,6 +3813,7 @@ window.savePart = async function () {
     if (editPartId) { const idx = parts.findIndex(x => x.id === editPartId); p.id = editPartId; const u = { ...parts[idx], ...p }; await DB.upsert('parts', u); parts[idx] = u; toast('Updated'); }
     else { const saved = await DB.upsert('parts', p); parts.push(saved); toast('Added'); }
     closeModal('m-part'); renderParts();
+    if (typeof productionImportState.importCallback === 'function') { productionImportState.importCallback(); productionImportState.importCallback = null; }
   } catch (err) { toast('Save failed: ' + err.message, 'error'); }
 };
 window.delPart = async function (id) { if (!canI('parts', 'delete')) { toast('Not allowed', 'error'); return; } if (!confirm('Delete?')) return; await DB.remove('parts', id); parts = parts.filter(p => p.id !== id); renderParts(); toast('Deleted'); };
@@ -4186,23 +4203,84 @@ window.clearLeEntry = clearLeEntry;
 //  PRODUCTION IMPORT (Excel/CSV → pending entries)
 // ════════════════════════════════════════════════
 let productionImportState = { fileName: '', rows: [], preview: [], autoSkipEmpty: true };
+function cleanImportField(value) { return String(value || '').trim(); }
+function findTechByIdOrName(value) {
+  const raw = cleanImportField(value);
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  return techs.find(t => (t.id || '').toLowerCase() === lower) || techs.find(t => (t.name || '').toLowerCase() === lower);
+}
+function findPartByNumber(value) {
+  const raw = cleanImportField(value);
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  return parts.find(p => ((p.num || '').toLowerCase() === lower || (p.oem || '').toLowerCase() === lower || (p.altNum || '').toLowerCase() === lower)) || parts.find(p => ((p.name || '').toLowerCase() === lower));
+}
+function isImportFooterRow(row) {
+  const text = Object.values(row).filter(v => v !== null && v !== undefined).join(' ').toString().trim().toLowerCase();
+  return !text || /total|sum|grand\s*total|subtotal|footer|page\s*\d+/i.test(text);
+}
 function buildEntriesFromRow(row) {
-  const techIdRaw = String(row.TechID || row.EmployeeID || row['Employee ID'] || row.ID || '').trim();
-  const tech = techs.find(t => t.id.toLowerCase() === techIdRaw.toLowerCase()) || techs.find(t => t.name.toLowerCase() === String(row.TechName || row.Employee || '').toLowerCase());
-  const partNum = String(row.PartNum || row.Part || row['Part Number'] || '').trim();
-  const part = parts.find(p => p.num.toLowerCase() === partNum.toLowerCase());
-  const taskCode = String(row.TaskCode || row['Task Code'] || row.JIC || '').trim().toUpperCase();
-  const role = ROLES.find(r => r.toLowerCase() === String(row.Role || row.JobRole || 'Technician').trim().toLowerCase()) || 'Technician';
-  const date = String(row.Date || row.Time || row['Date Completed'] || '').slice(0, 10);
-  const hoursValue = parseFloat(row.Hours || row['Hours'] || row.Duration || row['Duration Hours'] || '0');
-  if (!tech || !part || !taskCode) return [];
-  const hours = part ? calcPoolHrs(part, role, taskCode) : (!isNaN(hoursValue) ? hoursValue : 0);
-  return [{
-    techId: tech.id, techName: tech.name, pname: part.name, pnum: part.num, taskCode, jobRole: role,
-    jobType: String(row.Type || 'completed').toLowerCase().startsWith('scr') ? 'scrap' : 'completed',
-    time: date || todayEAT(), hours, stdHours: part.hours, ata: part.ata,
-    approvalStatus: 'pending', submittedBy: CU?.name || '', submittedByRole: CR || '', dept: tech.department || ''
-  }];
+  const wpId = cleanImportField(row['WP ID'] || row.WP_ID || row['Work Package ID'] || row.WPID || row['Work Package'] || row.WP || '');
+  const taskCode = cleanImportField(wpId || row.TaskCode || row['Task Code'] || row.JIC || row['Work Package'] || '');
+  const partNum = cleanImportField(row['OEM P/N'] || row.OEM_PN || row['Part Number'] || row.PartNum || row.PN || row.Part || '');
+  const status = cleanImportField(row.Status || row['Job Status'] || row['Status'] || '');
+  const date = cleanImportField(row['Date Completed'] || row.Date || row.Completed || row['Completed Date'] || row['Completion Date'] || '');
+  const techIdRaw = cleanImportField(row.TECH_ID || row.TechID || row['Technician ID'] || row['Employee ID'] || row['Tech ID'] || row.Tech || row.Technician || '');
+  const underSupRaw = cleanImportField(row.UNDER_SUP || row['UNDER_SUP'] || row['Under Sup'] || row['Under Supervision'] || row['Supervision ID'] || row.SUP_ID || '');
+  const prelimRaw = cleanImportField(row.PRELIM_INSP || row['PRELIM_INSP'] || row['Prelim Insp'] || row['Prelim Inspector'] || row['PrelimID'] || '');
+  const jobType = status.toLowerCase().includes('scrap') ? 'scrap' : 'completed';
+  if (isImportFooterRow(row) && !taskCode && !partNum && !techIdRaw && !underSupRaw && !prelimRaw) return [];
+  const part = findPartByNumber(partNum);
+  const specs = [];
+  if (techIdRaw) specs.push({ field: 'techId', role: 'Technician', employeeRaw: techIdRaw });
+  if (underSupRaw) specs.push({ field: 'underSup', role: 'Under Supervision', employeeRaw: underSupRaw });
+  if (prelimRaw) specs.push({ field: 'prelim', role: 'Preliminary Inspector', employeeRaw: prelimRaw });
+  if (!specs.length && techIdRaw) specs.push({ field: 'techId', role: 'Technician', employeeRaw: techIdRaw });
+  const rows = [];
+  if (!specs.length) {
+    rows.push({
+      status: 'Missing required field',
+      reason: 'Row is missing technician or role identifiers',
+      entry: { techId: techIdRaw, techName: '', pname: part ? part.name : '', pnum: partNum, taskCode: taskCode.toUpperCase(), jobRole: 'Technician', jobType, time: date.slice(0, 10) || todayEAT(), hours: part ? calcPoolHrs(part, 'Technician', taskCode.toUpperCase()) : 0, stdHours: part?.hours || 0, ata: part?.ata || '', approvalStatus: 'pending', submittedBy: CU?.name || '', submittedByRole: CR || '', dept: '' }
+    });
+    return rows;
+  }
+  specs.forEach(spec => {
+    const tech = findTechByIdOrName(spec.employeeRaw);
+    const entry = {
+      techId: tech?.id || spec.employeeRaw,
+      techName: tech?.name || '',
+      pname: part?.name || '',
+      pnum: part?.num || partNum,
+      taskCode: taskCode.toUpperCase(),
+      jobRole: spec.role,
+      jobType,
+      time: date.slice(0, 10) || todayEAT(),
+      hours: part ? calcPoolHrs(part, spec.role, taskCode.toUpperCase()) : 0,
+      stdHours: part?.hours || 0,
+      ata: part?.ata || '',
+      approvalStatus: 'pending',
+      submittedBy: CU?.name || '',
+      submittedByRole: CR || '',
+      dept: tech?.department || ''
+    };
+    const missing = [];
+    if (!entry.taskCode) missing.push('Task code');
+    if (!entry.pnum) missing.push('Part number');
+    if (!part) missing.push('Part not found');
+    if (!entry.techId) missing.push('Technician ID');
+    if (!tech) missing.push('Technician not found');
+    if (!entry.time) missing.push('Date completed');
+    const statusText = missing.length ? 'Missing required field' : 'Pending validation';
+    rows.push({
+      status: statusText,
+      reason: missing.join(', '),
+      entry,
+      canImport: missing.length === 0
+    });
+  });
+  return rows;
 }
 window.buildEntriesFromRow = buildEntriesFromRow;
 function normalizeImportRecord(item) {
@@ -4260,21 +4338,32 @@ function resolveProductionImportDuplicate(rowIndex, action) {
   validateProductionImportPreview();
 }
 window.resolveProductionImportDuplicate = resolveProductionImportDuplicate;
-function fillProductionImportRow(rowIndex) {
+function openAddTechForImport(rowIndex) {
+  productionImportState.importCallback = () => validateProductionImportPreview();
+  openAddTech();
+}
+window.openAddTechForImport = openAddTechForImport;
+function openAddPartForImport(rowIndex) {
+  productionImportState.importCallback = () => validateProductionImportPreview();
+  openAddPart();
+}
+window.openAddPartForImport = openAddPartForImport;
+function fillProductionImportRow(rowIndex, field) {
   const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
   const target = preview.find(item => String(item.row) === String(rowIndex));
   if (!target) return;
   const normalized = normalizeImportRecord(target);
-  const field = normalized.missingRequired?.[0] || 'Task code';
-  const promptLabel = field === 'Technician ID' ? 'Technician ID' : field;
+  const missing = normalized.missingRequired || [];
+  const promptField = field || missing[0] || 'Task code';
+  const promptLabel = promptField === 'Technician ID' ? 'Technician ID' : promptField;
   const value = window.prompt(`Enter ${promptLabel}:`);
   if (!value) return;
   const nextEntry = { ...normalized.entry };
-  if (field === 'Task code') nextEntry.taskCode = value.toUpperCase();
-  else if (field === 'Role') nextEntry.jobRole = value;
-  else if (field === 'Part number') nextEntry.pnum = value;
-  else if (field === 'Date') nextEntry.time = value.slice(0, 10);
-  else if (field === 'Technician ID') nextEntry.techId = value;
+  if (promptField === 'Task code') nextEntry.taskCode = value.toUpperCase();
+  else if (promptField === 'Role') nextEntry.jobRole = value;
+  else if (promptField === 'Part number') nextEntry.pnum = value;
+  else if (promptField === 'Date') nextEntry.time = value.slice(0, 10);
+  else if (promptField === 'Technician ID') nextEntry.techId = value;
   target.entry = nextEntry;
   productionImportState.preview = preview;
   validateProductionImportPreview();
@@ -4293,9 +4382,15 @@ function validateProductionImportPreview() {
       return;
     }
     const missing = item.missingRequired || [];
+    if (!entry.techName && entry.techId) {
+      missing.push('Technician not found');
+    }
+    if (!entry.pname && entry.pnum) {
+      missing.push('Part not found');
+    }
     if (missing.length) {
       item.status = 'Missing required field';
-      item.reason = missing.join(', ');
+      item.reason = Array.from(new Set(missing)).join(', ');
       item.canImport = false;
       return;
     }
@@ -4334,12 +4429,14 @@ function renderImportProduction() {
     const badgeClass = status === 'Ready to import' ? 'good' : (status === 'Auto-skipped' ? 'warn' : 'error');
     const badge = `<span class="prod-import-row-badge ${badgeClass}">${escapeHtml(status)}</span>`;
     const fillAction = item.missingRequired && item.missingRequired.length ? `<div class="prod-import-detail"><button class="btn bo bsm" style="padding:3px 8px;" onclick="fillProductionImportRow('${item.row || idx + 1}')">Fill</button> ${escapeHtml(item.missingRequired.join(', '))}</div>` : '';
+    const addTechAction = !entry.techName && entry.techId ? `<div class="prod-import-detail"><button class="btn bp bsm" style="padding:3px 8px;" onclick="openAddTechForImport('${item.row || idx + 1}')">Add Technician</button></div>` : '';
+    const addPartAction = !entry.pname && entry.pnum ? `<div class="prod-import-detail"><button class="btn bp bsm" style="padding:3px 8px;" onclick="openAddPartForImport('${item.row || idx + 1}')">Add Part</button></div>` : '';
     const duplicateActions = item.status && String(item.status).toLowerCase().indexOf('duplicate') !== -1 ? `<div class="prod-import-detail"><button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.row || idx + 1}', 'keep-first')">Keep first</button> <button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.row || idx + 1}', 'keep-last')">Keep last</button> <button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.row || idx + 1}', 'merge')">Merge</button> <button class="btn bd bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.row || idx + 1}', 'remove')">Remove</button></div>` : '';
     const detail = item.reason ? `<div class="prod-import-detail">${escapeHtml(item.reason)}</div>` : '';
     return `<tr><td class="mono">${item.row || idx + 1}</td><td class="mono">${String(entry.time || '').slice(0, 10) || '—'}</td>
       <td>${escapeHtml(entry.techName || '—')}</td><td>${escapeHtml(entry.jobRole || '—')}</td>
       <td class="mono" style="color:var(--blue);">${escapeHtml(entry.taskCode || '—')}</td><td class="mono" style="color:var(--amber);">${escapeHtml(entry.pnum || '—')}</td>
-      <td class="mono">${(entry.hours || 0).toFixed(2)}h</td><td>${badge}${fillAction}${duplicateActions}${detail}</td></tr>`;
+      <td class="mono">${(entry.hours || 0).toFixed(2)}h</td><td>${badge}${fillAction}${addTechAction}${addPartAction}${duplicateActions}${detail}</td></tr>`;
   }).join('') || '';
 }
 window.renderImportProduction = renderImportProduction;
@@ -4361,7 +4458,7 @@ async function previewProductionImport(input) {
     rows.forEach((row, idx) => {
       const built = buildEntriesFromRow(row) || [];
       if (!built.length) preview.push({ row: idx + 2, status: 'Missing required field', reason: 'Missing tech, part or task code', entry: { taskCode: String(row.TaskCode || row['Task Code'] || row.JIC || '').trim().toUpperCase(), jobRole: String(row.Role || row.JobRole || 'Technician').trim(), pnum: String(row.PartNum || row.Part || row['Part Number'] || '').trim(), time: String(row.Date || row.Time || row['Date Completed'] || '').slice(0, 10), techId: String(row.TechID || row.EmployeeID || row['Employee ID'] || row.ID || '').trim(), techName: String(row.TechName || row.Employee || '').trim() } });
-      else built.forEach(entry => preview.push({ row: idx + 2, status: 'Pending validation', entry }));
+      else built.forEach(item => preview.push({ row: idx + 2, ...item }));
     });
     productionImportState = { fileName: file.name, rows, preview, autoSkipEmpty: true };
     validateProductionImportPreview();
@@ -4709,44 +4806,59 @@ function buildWeeklyGridRows(rows) {
   }) }));
   return { weeks, rows: displayRows };
 }
-function renderShopReport() {
+function getShopReportRows() {
   const rr = getUIRange('sr');
   const scopeIds = shopDeptOptionsForUser().map(d => d.id);
-  const rows = shopPerf.filter(s => scopeIds.includes(s.dept) && s.weekStart >= rr.start.slice(0, 10) && s.weekStart <= rr.end.slice(0, 10));
+  return shopPerf.filter(s => scopeIds.includes(s.dept) && s.weekStart >= rr.start.slice(0, 10) && s.weekStart <= rr.end.slice(0, 10));
+}
+function summarizeShopReportByDept(rows) {
   const byDept = {};
   rows.forEach(r => {
-    if (!byDept[r.dept]) byDept[r.dept] = { target: 0, output: 0, tatSum: 0, tatWeeks: 0, inv: 0, wfp: 0, weeks: 0 };
-    const o = byDept[r.dept];
-    o.target += r.weeklyTarget ?? (r.daily || []).reduce((s, d) => s + (d.target || 0), 0);
-    o.output += r.weeklyOutput ?? (r.daily || []).reduce((s, d) => s + (d.actual || 0), 0);
-    if (r.weeklyAvgTat) { o.tatSum += r.weeklyAvgTat; o.tatWeeks++; }
-    o.inv = r.totalInventory || o.inv; o.wfp = r.wfp || o.wfp; o.weeks += 1;
+    if (!byDept[r.dept]) byDept[r.dept] = { dept: r.dept, target: 0, output: 0, tatSum: 0, tatCount: 0, inv: 0, wfp: 0, weeks: 0, submissions: 0, weekly: [] };
+    const entry = byDept[r.dept];
+    const target = r.weeklyTarget ?? (r.daily || []).reduce((s, d) => s + (d.target || 0), 0);
+    const output = r.weeklyOutput ?? (r.daily || []).reduce((s, d) => s + (d.actual || 0), 0);
+    entry.target += target;
+    entry.output += output;
+    if (r.weeklyAvgTat) { entry.tatSum += r.weeklyAvgTat; entry.tatCount++; }
+    entry.inv += r.totalInventory || 0;
+    entry.wfp += r.wfp || 0;
+    entry.weeks += 1;
+    entry.submissions += 1;
+    entry.weekly.push({ ...r, target, output, attainment: target ? Math.round((output / target) * 100) : 0, label: r.weekLabel || fmtEAT(r.weekStart, 'date') });
   });
+  return Object.values(byDept).map(d => ({
+    ...d,
+    avgTat: d.tatCount ? (d.tatSum / d.tatCount).toFixed(1) : '0.0',
+    attainment: d.target ? Math.round((d.output / d.target) * 100) : 0,
+  }));
+}
+function renderShopReport() {
+  const rr = getUIRange('sr');
+  const rows = getShopReportRows();
+  const departments = summarizeShopReportByDept(rows);
   const tbody = document.getElementById('sr-body');
   const summary = document.getElementById('sp-range-summary');
   const grid = document.getElementById('sp-weekly-grid');
   if (!tbody) return;
-  const keys = Object.keys(byDept);
-  tbody.innerHTML = keys.length ? keys.map(d => {
-    const o = byDept[d], attain = o.target ? Math.round(o.output / o.target * 100) : 0, cls = attain >= 100 ? 'bgr' : attain >= 80 ? 'bamb' : 'bred';
-    return `<tr><td style="font-weight:600;">${deptLabel(d)}</td><td class="mono">${o.target}</td><td class="mono" style="color:var(--green);font-weight:700;">${o.output}</td>
-      <td><span class="bdg ${cls}">${attain}%</span></td><td class="mono" style="color:var(--cyan);">${(o.tatWeeks ? o.tatSum / o.tatWeeks : 0).toFixed(1)}d</td>
-      <td class="mono">${o.inv}</td><td class="mono">${o.wfp}</td><td class="mono">${o.weeks}</td>
-      <td><button class="btn bo bsm" data-perm="shopreport:view" onclick="openShopReportDetail('${d}')">Detail</button></td></tr>`;
+  tbody.innerHTML = departments.length ? departments.map(d => {
+    const cls = d.attainment >= 100 ? 'bgr' : d.attainment >= 80 ? 'bamb' : 'bred';
+    return `<tr><td style="font-weight:600;">${escapeHtml(deptLabel(d.dept))}</td><td class="mono">${d.target}</td><td class="mono" style="color:var(--green);font-weight:700;">${d.output}</td>
+      <td><span class="bdg ${cls}">${d.attainment}%</span></td><td class="mono" style="color:var(--cyan);">${d.avgTat}d</td>
+      <td class="mono">${d.inv}</td><td class="mono">${d.wfp}</td><td class="mono">${d.weeks}</td>
+      <td><button class="btn bo bsm" data-perm="shopreport:view" onclick="openShopReportDetail('${d.dept}')">Details</button></td></tr>`;
   }).join('') : '<tr><td colspan="9" class="empty">No shop performance data in this range</td></tr>';
   applyPermVisibility();
-  if (summary) summary.innerHTML = `<span class="sp-pill">Range: ${escapeHtml(rr.start || '—')} → ${escapeHtml(rr.end || '—')}</span><span class="sp-pill">Shops: ${keys.length || 0}</span><span class="sp-pill">Weeks: ${Math.max(1, (rows.length ? rows.length : 0))}</span>`;
+  if (summary) summary.innerHTML = `<span class="sp-pill">Range: ${escapeHtml(rr.start || '—')} → ${escapeHtml(rr.end || '—')}</span><span class="sp-pill">Departments: ${departments.length}</span><span class="sp-pill">Week submissions: ${rows.length}</span>`;
   if (grid) {
-    const { weeks, rows: displayRows } = buildWeeklyGridRows(rows);
-    grid.style.setProperty('--week-count', weeks.length || 0);
-    if (!weeks.length) { grid.innerHTML = '<div class="empty">No weekly buckets available</div>'; }
-    else {
-      const head = ['Shop / Dept', ...weeks.map(w => `<div class="sp-grid-head">${escapeHtml(w.label)}</div>`)].join('');
-      const body = displayRows.map(row => {
-        const cells = row.weeks.map(week => `<div class="sp-grid-cell ${week.attainment < 80 ? 'error' : week.attainment < 100 ? 'warn' : ''}"><div class="sp-grid-label">${escapeHtml(row.name)}</div><div class="sp-grid-value">${week.output}</div><div class="sp-grid-meta">${week.attainment}% • ${week.target} tgt</div><div class="sp-grid-spark">${Array.from({ length: 5 }, (_, i) => `<span style="height:${Math.max(4, (week.output % 20) + 4)}px"></span>`).join('')}</div></div>`).join('');
-        return `<div class="sp-grid-label">${escapeHtml(row.name)}</div>${cells}`;
+    if (!departments.length) {
+      grid.innerHTML = '<div class="empty">No shop performance data to render</div>';
+    } else {
+      const cards = departments.map(d => {
+        const statusClass = d.attainment < 80 ? 'error' : d.attainment < 100 ? 'warn' : '';
+        return `<div class="sp-week-summary-card"><div class="sp-week-summary-head"><span>${escapeHtml(deptLabel(d.dept))}</span><span class="sp-week-summary-badge">${d.weeks} week${d.weeks === 1 ? '' : 's'}</span></div><div class="sp-week-box ${statusClass}"><div class="sp-week-box-label">Monthly Summary</div><div class="sp-week-box-row"><div><span>Total Target</span><strong>${d.target}</strong></div><div><span>Total Output</span><strong>${d.output}</strong></div><div><span>Attainment</span><strong>${d.attainment}%</strong></div></div><div class="sp-week-box-row"><div><span>Avg TAT</span><strong>${d.avgTat}d</strong></div><div><span>Inventory</span><strong>${d.inv}</strong></div><div><span>WFP</span><strong>${d.wfp}</strong></div></div><div class="sp-week-box-meta">${d.submissions} weekly submissions across the range</div></div><div class="sp-week-summary-footer"><button class="btn bo bsm" data-perm="shopreport:view" onclick="openShopReportDetail('${d.dept}')">Details</button></div></div>`;
       }).join('');
-      grid.innerHTML = `<div class="sp-grid-head">Shop / Dept</div>${head}${body}`;
+      grid.innerHTML = `<div class="sp-weekly-summary">${cards}</div>`;
     }
   }
 }
@@ -4757,19 +4869,42 @@ function openShopReportDetail(deptId) {
   const rows = shopPerf.filter(s => scopeIds.includes(s.dept) && s.dept === deptId && s.weekStart >= rr.start.slice(0, 10) && s.weekStart <= rr.end.slice(0, 10)).sort((a, b) => b.weekStart.localeCompare(a.weekStart));
   const body = document.getElementById('m-sr-detail-body');
   if (!body) return;
-  const cards = rows.length ? rows.map(r => {
+  const totals = rows.reduce((acc, r) => {
+    acc.target += r.weeklyTarget ?? (r.daily || []).reduce((s, d) => s + (d.target || 0), 0);
+    acc.output += r.weeklyOutput ?? (r.daily || []).reduce((s, d) => s + (d.actual || 0), 0);
+    if (r.weeklyAvgTat) { acc.tatSum += r.weeklyAvgTat; acc.tatCount++; }
+    acc.inv += r.totalInventory || 0;
+    acc.wfp += r.wfp || 0;
+    return acc;
+  }, { target: 0, output: 0, tatSum: 0, tatCount: 0, inv: 0, wfp: 0 });
+  const weeklyCards = rows.length ? rows.map(r => {
     const weeklyTarget = r.weeklyTarget ?? (r.daily || []).reduce((s, d) => s + (d.target || 0), 0);
     const weeklyOutput = r.weeklyOutput ?? (r.daily || []).reduce((s, d) => s + (d.actual || 0), 0);
     const attainment = weeklyTarget ? Math.round((weeklyOutput / weeklyTarget) * 100) : 0;
     const cls = attainment >= 100 ? 'bgr' : attainment >= 80 ? 'bamb' : 'bred';
-    const daily = r.daily || [];
-    const dayCells = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((dayName, idx) => {
-      const day = daily[idx] || {};
-      return `<div class="sr-day-cell"><div class="sr-day-title">${escapeHtml(dayName)}</div><div class="sr-day-stat"><span>Target</span><b>${day.target ?? 0}</b></div><div class="sr-day-stat"><span>Actual</span><b>${day.actual ?? 0}</b></div><div class="sr-day-stat"><span>Input</span><b>${day.input ?? 0}</b></div><div class="sr-day-stat"><span>TAT</span><b>${Number(day.tat ?? 0).toFixed(1)}d</b></div></div>`;
-    }).join('');
-    return `<div class="sr-record-card"><div class="sr-record-head"><div><div class="sr-dept-name">${escapeHtml(deptLabel(r.dept))}</div><div class="sr-record-meta"><span class="bdg bblu">${escapeHtml(r.weekLabel || fmtEAT(r.weekStart, 'date'))}</span><span class="bdg ${cls}">${attainment}%</span></div></div><div class="sr-record-meta"><span class="bdg bgray">${fmtEAT(r.weekStart, 'date')}</span></div></div><div class="sr-kpis"><div class="sr-day-cell"><div class="sr-day-title">Target</div><div class="sr-day-stat"><b>${weeklyTarget}</b></div></div><div class="sr-day-cell"><div class="sr-day-title">Output</div><div class="sr-day-stat"><b>${weeklyOutput}</b></div></div><div class="sr-day-cell"><div class="sr-day-title">Avg TAT</div><div class="sr-day-stat"><b>${Number(r.weeklyAvgTat || 0).toFixed(1)}d</b></div></div><div class="sr-day-cell"><div class="sr-day-title">Inventory</div><div class="sr-day-stat"><b>${r.totalInventory || 0}</b></div></div><div class="sr-day-cell"><div class="sr-day-title">WFP</div><div class="sr-day-stat"><b>${r.wfp || 0}</b></div></div></div><div class="sr-days-grid">${dayCells}</div>${r.managerComment ? `<div class="sr-mgr-comment-box"><div class="sr-mgr-label">Manager Feedback</div><div style="font-size:13px;color:var(--tx2);">${escapeHtml(r.managerComment)}</div></div>` : ''}</div>`;
-  }).join('') : '<div class="empty">No shop performance entries for this department in the selected range.</div>';
-  body.innerHTML = `<div class="sr-detail-card"><div class="sr-detail-head"><div><div style="font-size:16px;font-weight:800;">${escapeHtml(deptLabel(deptId))}</div><div style="font-size:12px;color:var(--tx3);margin-top:2px;">${escapeHtml(rr.start || '—')} → ${escapeHtml(rr.end || '—')}</div></div><span class="bdg bblu">${rows.length} week${rows.length === 1 ? '' : 's'}</span></div>${cards}</div>`;
+    return `<div class="sp-week-detail-card"><div class="sp-week-detail-head"><div><strong>${escapeHtml(r.weekLabel || fmtEAT(r.weekStart, 'date'))}</strong><div class="sp-week-detail-sub">${fmtEAT(r.weekStart, 'date')}</div></div><div><span class="bdg ${cls}">${attainment}%</span></div></div><div class="sp-week-detail-list"><div><span>Target</span><strong>${weeklyTarget}</strong></div><div><span>Output</span><strong>${weeklyOutput}</strong></div><div><span>Avg TAT</span><strong>${Number(r.weeklyAvgTat || 0).toFixed(1)}d</strong></div></div><div class="sp-week-detail-actions"><button class="btn bo bsm" data-perm="shopreport:view" onclick="openShopReportWeekDetail('${deptId}','${r.weekStart}')">Details</button></div></div>`;
+  }).join('') : '<div class="empty">No weekly records available for this department in the selected range.</div>';
+  const avgTat = totals.tatCount ? (totals.tatSum / totals.tatCount).toFixed(1) : '0.0';
+  body.innerHTML = `<div class="sr-detail-card"><div class="sr-detail-head"><div><div style="font-size:16px;font-weight:800;">${escapeHtml(deptLabel(deptId))}</div><div style="font-size:12px;color:var(--tx3);margin-top:2px;">${escapeHtml(rr.start || '—')} → ${escapeHtml(rr.end || '—')}</div></div><span class="bdg bblu">${rows.length} week${rows.length === 1 ? '' : 's'}</span></div><div class="sr-detail-grid"><div class="sr-detail-cell"><div class="sr-detail-label">Total Target</div><div class="sr-detail-value">${totals.target}</div></div><div class="sr-detail-cell"><div class="sr-detail-label">Total Output</div><div class="sr-detail-value">${totals.output}</div></div><div class="sr-detail-cell"><div class="sr-detail-label">Avg TAT</div><div class="sr-detail-value">${avgTat}d</div></div><div class="sr-detail-cell"><div class="sr-detail-label">Inventory</div><div class="sr-detail-value">${totals.inv}</div></div><div class="sr-detail-cell"><div class="sr-detail-label">WFP</div><div class="sr-detail-value">${totals.wfp}</div></div></div><div class="sp-weekly-summary">${weeklyCards}</div></div>`;
+  openModal('m-sr-detail');
+}
+function openShopReportWeekDetail(deptId, weekStart) {
+  const row = shopPerf.find(s => s.dept === deptId && s.weekStart === weekStart);
+  const body = document.getElementById('m-sr-detail-body');
+  if (!body) return;
+  if (!row) {
+    body.innerHTML = '<div class="empty">Week data is not available.</div>'; openModal('m-sr-detail'); return;
+  }
+  const weeklyTarget = row.weeklyTarget ?? (row.daily || []).reduce((s, d) => s + (d.target || 0), 0);
+  const weeklyOutput = row.weeklyOutput ?? (row.daily || []).reduce((s, d) => s + (d.actual || 0), 0);
+  const attainment = weeklyTarget ? Math.round((weeklyOutput / weeklyTarget) * 100) : 0;
+  const cls = attainment >= 100 ? 'bgr' : attainment >= 80 ? 'bamb' : 'bred';
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const rowsHtml = days.map((dayName, idx) => {
+    const day = (row.daily || [])[idx] || {};
+    return `<tr><td>${escapeHtml(dayName)}</td><td class="mono">${day.target ?? 0}</td><td class="mono">${day.actual ?? 0}</td><td class="mono">${day.input ?? 0}</td><td class="mono">${Number(day.tat ?? 0).toFixed(1)}d</td></tr>`;
+  }).join('');
+  body.innerHTML = `<div class="sr-detail-card"><div class="sr-detail-head"><div><div style="font-size:16px;font-weight:800;">${escapeHtml(deptLabel(deptId))}</div><div style="font-size:12px;color:var(--tx3);margin-top:2px;">Week ${escapeHtml(row.weekLabel || fmtEAT(row.weekStart, 'date'))}</div></div><button class="btn bo bsm" onclick="openShopReportDetail('${deptId}')">← Back</button></div><div class="sr-detail-grid"><div class="sr-detail-cell"><div class="sr-detail-label">Target</div><div class="sr-detail-value">${weeklyTarget}</div></div><div class="sr-detail-cell"><div class="sr-detail-label">Output</div><div class="sr-detail-value">${weeklyOutput}</div></div><div class="sr-detail-cell"><div class="sr-detail-label">Attainment</div><div class="sr-detail-value"><span class="bdg ${cls}">${attainment}%</span></div></div><div class="sr-detail-cell"><div class="sr-detail-label">Avg TAT</div><div class="sr-detail-value">${Number(row.weeklyAvgTat || 0).toFixed(1)}d</div></div></div><div class="card" style="margin-top:14px;"><div class="ch"><span class="ct">Daily Entries</span></div><div class="cb"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left; padding:8px; border-bottom:1px solid var(--bdr);">Day</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">Target</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">Actual</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">Input</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">TAT</th></tr></thead><tbody>${rowsHtml}</tbody></table></div></div>${row.managerComment ? `<div class="sr-mgr-comment-box" style="margin-top:12px;"><div class="sr-mgr-label">Manager Feedback</div><div style="font-size:13px;color:var(--tx2);">${escapeHtml(row.managerComment)}</div></div>` : ''}</div>`;
   openModal('m-sr-detail');
 }
 window.openShopReportDetail = openShopReportDetail;
@@ -4782,19 +4917,16 @@ window.exportShopReport = async function (format) {
     rows.forEach(r => csv += r.map(c => `"${c}"`).join(',') + '\n');
     dlFile(csv, `shop_report_${todayEAT()}.csv`, 'text/csv'); toast('Exported'); return;
   }
+  if (format !== 'pdf') { toast('Export format not available', 'error'); return; }
   if (!window.html2canvas) { toast('Export library not loaded', 'error'); return; }
   const card = document.getElementById('sr-card');
   try {
     const canvas = await html2canvas(card, { scale: 2, backgroundColor: getComputedStyle(document.body).getPropertyValue('--card') || '#111827' });
-    if (format === 'pdf') {
-      const { jsPDF } = window.jspdf || {}; if (!jsPDF) throw new Error('jsPDF missing');
-      const pdf = new jsPDF('l', 'mm', 'a4');
-      const ratio = (pdf.internal.pageSize.getWidth() - 12) / canvas.width;
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 6, 6, canvas.width * ratio, canvas.height * ratio);
-      pdf.save(`shop_report_${todayEAT()}.pdf`);
-    } else {
-      const link = document.createElement('a'); link.href = canvas.toDataURL('image/png'); link.download = `shop_report_${todayEAT()}.png`; link.click();
-    }
+    const { jsPDF } = window.jspdf || {}; if (!jsPDF) throw new Error('jsPDF missing');
+    const pdf = new jsPDF('l', 'mm', 'a4');
+    const ratio = (pdf.internal.pageSize.getWidth() - 12) / canvas.width;
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 6, 6, canvas.width * ratio, canvas.height * ratio);
+    pdf.save(`shop_report_${todayEAT()}.pdf`);
     toast('Exported');
   } catch (err) { console.error(err); toast('Export failed', 'error'); }
 };
