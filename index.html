@@ -2520,7 +2520,7 @@ input[type="date"] {
 // ────────────────────────────────────────────────
 //  CONSTANTS
 // ────────────────────────────────────────────────
-const APP_VERSION = '3.1.0';
+const APP_VERSION = '3.0.0';
 const DEV_RECOVERY_CODE = 'PROTRACK-DEV-2025-RESET';
 const EAT_TZ = 'Africa/Addis_Ababa';
 const ROLES = ['Technician', 'Under Supervision', 'Inspector', 'Preliminary Inspector'];
@@ -6111,4 +6111,395 @@ function renderShopComparisonDashboard() {
     </div>`).join('');
   const outputSection = `<div class="sc-section"><div class="sc-section-title">📊 Output vs Target</div>${outputRows}</div>`;
 
-  // C. Average TAT Ranking — lower is better; very high TAT highl
+  // C. Average TAT Ranking — lower is better; very high TAT highlighted in red.
+  const tatSorted = depts.slice().sort((a, b) => parseFloat(a.avgTat) - parseFloat(b.avgTat));
+  const avgOfAvgTat = tatSorted.reduce((s, d) => s + (parseFloat(d.avgTat) || 0), 0) / (tatSorted.length || 1);
+  const tatRows = tatSorted.map((d, i) => {
+    const tat = parseFloat(d.avgTat) || 0;
+    const isHigh = tat > avgOfAvgTat * 1.5 && tat > 0;
+    return `<div class="sc-rank-row">
+      <div class="sc-rank-num">${i + 1}</div>
+      <div class="sc-rank-name">${escapeHtml(deptLabel(d.dept))}</div>
+      <div class="sc-rank-tat" style="color:${isHigh ? 'var(--rose)' : i === 0 ? 'var(--green)' : 'var(--tx)'};">${tat.toFixed(1)}d${isHigh ? ' ⚠' : ''}</div>
+    </div>`;
+  }).join('');
+  const tatSection = `<div class="sc-section"><div class="sc-section-title">⏱ Average TAT Ranking <span style="font-weight:400;color:var(--tx3);font-size:11px;">(lower is better)</span></div>${tatRows}</div>`;
+
+  // D. Inventory Risk Chart — color-coded by relative level.
+  const maxInv = Math.max(1, ...depts.map(d => Number(d.inv) || 0));
+  const invRows = depts.slice().sort((a, b) => b.inv - a.inv).map(d => {
+    const inv = Number(d.inv) || 0;
+    const pct = (inv / maxInv) * 100;
+    const ratio = inv / maxInv;
+    const cls = ratio >= 0.7 ? 'sc-bar-bad' : ratio >= 0.4 ? 'sc-bar-warn' : 'sc-bar-good';
+    return `<div class="sc-bar-row">
+      <div class="sc-bar-label" title="${escapeHtml(deptLabel(d.dept))}">${escapeHtml(deptLabel(d.dept))}</div>
+      <div class="sc-bar-track"><div class="sc-bar-fill ${cls}" style="width:${pct}%;"></div></div>
+      <div class="sc-bar-value">${inv}</div>
+    </div>`;
+  }).join('');
+  const invSection = `<div class="sc-section"><div class="sc-section-title">📦 Inventory Risk <span style="font-weight:400;color:var(--tx3);font-size:11px;">(higher relative bar = higher risk)</span></div>${invRows}</div>`;
+
+  // E. Overall Shop Performance Score — composite of attainment, TAT, inventory, output-vs-target.
+  const scoreCards = scored.slice().sort((a, b) => b.scOverall - a.scOverall).map(d => {
+    const badge = scBadgeForScore(d.scOverall);
+    return `<div class="sc-score-card">
+      <div class="sc-score-name">${escapeHtml(deptLabel(d.dept))}</div>
+      <div class="sc-score-num" style="color:${d.scOverall >= 80 ? 'var(--green)' : d.scOverall >= 60 ? 'var(--amber)' : 'var(--rose)'};">${d.scOverall}</div>
+      <span class="sc-score-badge ${badge.cls}">${badge.label}</span>
+      <div style="margin-top:8px;font-size:11px;color:var(--tx3);line-height:1.6;">
+        Attainment ${d.scAttainmentScore} · Output ${d.scOutputScore}<br/>TAT ${d.scTatScore} · Inventory ${d.scInvScore}
+      </div>
+    </div>`;
+  }).join('');
+  const scoreSection = `<div class="sc-section"><div class="sc-section-title">🏆 Overall Shop Performance Score</div><div class="sc-score-grid">${scoreCards}</div></div>`;
+
+  content.innerHTML = header + attainmentSection + outputSection + tatSection + invSection + scoreSection;
+}
+window.renderShopComparisonDashboard = renderShopComparisonDashboard;
+window.openShopComparisonDashboard = function () {
+  if (!canI('shopreport', 'comparison')) { toast('You do not have permission to view the Shop Comparison dashboard', 'error'); return; }
+  renderShopComparisonDashboard();
+  openModal('m-shopcomparison');
+  applyPermVisibility();
+};
+window.exportShopComparisonImage = async function (format = 'png') {
+  if (!canI('shopreport', 'exportimage')) { toast('You do not have permission to export this dashboard', 'error'); return; }
+  if (!window.html2canvas) { toast('Export library not loaded', 'error'); return; }
+  const el = document.getElementById('sc-content');
+  if (!el) { toast('Nothing to export', 'error'); return; }
+  try {
+    const bg = getComputedStyle(document.body).getPropertyValue('--card') || '#111827';
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: bg, useCORS: true });
+    const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+    const ext = format === 'jpg' ? 'jpg' : 'png';
+    const dataUrl = canvas.toDataURL(mime, 0.95);
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `shop_comparison_${todayEAT()}.${ext}`;
+    a.click();
+    toast('Exported ' + ext.toUpperCase());
+  } catch (err) { console.error(err); toast('Export failed', 'error'); }
+};
+
+// ════════════════════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════════════════════
+// Pages that are always Developer-only, and the full set of pages a Developer can reach —
+// both derived from PERMISSION_SCHEMA (defined in the permissions module) so there is one
+// single source of truth for the app's page map.
+const DEV_ONLY_PAGES = DEV_ONLY_PAGE_KEYS;
+const DEV_ALL_PAGES = Object.keys(PERM_PAGE_INDEX);
+const META = {
+  entry: { t: 'Production Entry', d: 'Log completed or scrap work' }, mystats: { t: 'My Results', d: 'Personal KPI and history' },
+  dashboard: { t: 'Dashboard', d: 'Real-time performance' }, assignments: { t: 'Assignments', d: 'Assign tasks to technicians' },
+  allentries: { t: 'All Entries', d: 'Complete production log' }, controllerentry: { t: 'Production Controller Entry', d: 'Log entry on behalf of a technician' },
+  importproduction: { t: 'Import Production', d: 'Bulk import from Excel/CSV' }, reports: { t: 'Reports', d: 'Monthly Target summary' },
+  ratios: { t: 'Hour Ratio Settings', d: 'Set SDT % and inspector fixed hours' }, taskgroups: { t: 'Task Code Groups', d: 'Personnel grouped by JIC task code' },
+  techs: { t: 'Manage Technicians', d: '' }, parts: { t: 'Parts & Inventory', d: '' }, leaders: { t: 'Team Leaders', d: '' }, controllers: { t: 'Production Controllers', d: '' },
+  managers: { t: 'Managers', d: 'Multi-department oversight accounts' }, departments: { t: 'Departments', d: 'Manage shop departments' },
+  permissions: { t: 'Permissions', d: 'Role access control' }, pwmgmt: { t: 'Password Management', d: 'Reset user passwords' }, system: { t: 'System Settings', d: '' },
+  shopperformance: { t: 'Shop Performance', d: 'Weekly department hours' }, shopreport: { t: 'Shop Report', d: 'Aggregate shop performance' }
+};
+const ICONS = {
+  entry: '⊕', mystats: '📊', dashboard: '🖥', assignments: '📌', allentries: '📋', controllerentry: '⊕', importproduction: '📥', reports: '📈',
+  ratios: '⚖️', taskgroups: '🗂', techs: '👷', parts: '🔩', leaders: '👥', controllers: '🏭', managers: '🧑‍💼', departments: '🏢',
+  permissions: '🔐', pwmgmt: '🔐', system: '⚙️', shopperformance: '📅', shopreport: '🏭'
+};
+function pagesForCurrentRole() {
+  if (CR === 'dev') return DEV_ALL_PAGES;
+  return Object.keys(PERM_PAGE_INDEX).filter(p => !DEV_ONLY_PAGE_KEYS.includes(p) && roleCanSeePage(CR, p));
+}
+function buildNav() {
+  const nav = document.getElementById('sbnav'); if (!nav) return;
+  nav.innerHTML = '<div class="sb-sec">Menu</div>' + pagesForCurrentRole().map(p => `<div class="nl" data-page="${p}" onclick="navTo('${p}');closeSidebar();"><span class="ni">${ICONS[p] || '•'}</span>${META[p]?.t || p}</div>`).join('');
+}
+window.buildNav = buildNav;
+window.navTo = function (page) {
+  if (CR !== 'dev') {
+    if (DEV_ONLY_PAGES.includes(page)) { toast('Page not available for your role', 'error'); return; }
+    if (!roleCanSeePage(CR, page)) { toast('You do not have access to this page', 'error'); return; }
+  }
+  document.querySelectorAll('.pg').forEach(p => p.classList.remove('on'));
+  document.querySelectorAll('.nl').forEach(l => l.classList.remove('on'));
+  document.getElementById('pg-' + page)?.classList.add('on');
+  document.querySelector(`.nl[data-page="${page}"]`)?.classList.add('on');
+  const m = META[page] || {}; stxt('pg-title', m.t || page); stxt('pg-desc', m.d || '');
+  if (page === 'entry') renderEntry();
+  if (page === 'mystats') { const mf = document.getElementById('ms-month-filter'); if (mf && !mf.value) mf.value = todayEAT().slice(0, 7); renderMyStats(); }
+  if (page === 'dashboard') { populateTechFilter(); if (!document.getElementById('dash-dt-from')?.value) { setUIRange('dash', 'month'); } renderDashboard(); renderLB(); }
+  if (page === 'assignments') { populateAsnSels(); renderAssignments(); }
+  if (page === 'allentries') { populateTechFilter(); if (!document.getElementById('ae-dt-from')?.value) applyAEPreset('today'); else renderAllEntries(); }
+  if (page === 'importproduction') renderImportProduction();
+  if (page === 'reports') { if (!document.getElementById('rpt-dt-from')?.value) setUIRange('rpt', 'month'); renderReports(); }
+  if (page === 'ratios') renderRatios();
+  if (page === 'taskgroups') { if (!document.getElementById('tc-dt-from')?.value) applyTCPreset('today'); else renderTG(); }
+  if (page === 'techs') renderTechs();
+  if (page === 'parts') renderParts();
+  if (page === 'leaders') renderLeaders();
+  if (page === 'controllers') renderControllers();
+  if (page === 'managers') renderManagers();
+  if (page === 'departments') renderDeptList();
+  if (page === 'permissions') renderPermissionsPage();
+  if (page === 'controllerentry') { populateLeaderEntryTechs(); renderLeaderEntry(); }
+  if (page === 'pwmgmt') renderPwMgmt();
+  if (page === 'system') renderSystem();
+  if (page === 'shopperformance') renderShopPerformance();
+  if (page === 'shopreport') { if (!document.getElementById('sr-dt-from')?.value) applySRPreset('month'); else renderShopReport(); }
+  applyPermVisibility();
+};
+
+// ════════════════════════════════════════════════
+//  DEV: PASSWORD MANAGEMENT
+// ════════════════════════════════════════════════
+function fillRpUsers() {
+  const t = document.getElementById('rp-type')?.value; const sel = document.getElementById('rp-user'); if (!sel) return;
+  const list = t === 'tech' ? techs : t === 'lead' ? leaders : t === 'mgr' ? managers : controllers;
+  sel.innerHTML = list.map(u => `<option value="${u.id}">${u.name} (${u.id})</option>`).join('');
+}
+window.fillRpUsers = fillRpUsers;
+window.doResetPw = async function () {
+  const t = document.getElementById('rp-type')?.value, uid = document.getElementById('rp-user')?.value, npw = sanitize(document.getElementById('rp-new')?.value);
+  if (!uid || !npw) { toast('Select user and enter new password', 'error'); return; }
+  const table = t === 'tech' ? 'technicians' : t === 'lead' ? 'leaders' : t === 'mgr' ? 'managers' : 'controllers';
+  const list = t === 'tech' ? techs : t === 'lead' ? leaders : t === 'mgr' ? managers : controllers;
+  const idx = list.findIndex(x => x.id === uid);
+  if (idx > -1) { list[idx].password = npw; await DB.upsert(table, list[idx]); toast('Password reset for ' + list[idx].name); }
+  sv('rp-new', '');
+};
+window.changeDevPw = async function () {
+  const npw = sanitize(document.getElementById('dev-new-pw')?.value);
+  if (!npw || npw.length < 4) { toast('Enter a valid password (min 4 chars)', 'error'); return; }
+  settings.passwords = { ...settings.passwords, dev: npw };
+  await persistSettings(); sv('dev-new-pw', ''); toast('Developer password updated');
+};
+function renderPwMgmt() {
+  fillRpUsers();
+  const el = document.getElementById('pw-all-list'); if (!el) return;
+  const allUsers = [...techs.map(t => ({ ...t, role: 'Technician' })), ...leaders.map(l => ({ ...l, role: 'Team Leader' })), ...controllers.map(c => ({ ...c, role: 'Production Controller' })), ...managers.map(m => ({ ...m, role: 'Manager' })), { id: 'DEV001', name: 'Developer Admin', role: 'Developer', status: 'active' }];
+  el.innerHTML = allUsers.map(u => `<div class="pw-reset-user">
+    <div style="display:flex;align-items:center;gap:9px;">
+      <div style="width:28px;height:28px;border-radius:50%;overflow:hidden;">${u.role !== 'Developer' ? avatarHtml(u.id, u.name, 28) : '<div class="av-i" style="width:28px;height:28px;font-size:10px;background:#8b5cf6;color:#fff;">DA</div>'}</div>
+      <div><div style="font-size:13px;font-weight:600;">${sanitize(u.name)}</div><div style="font-size:11px;color:var(--tx3);">${u.id} · ${u.role}</div></div></div>
+    <span class="bdg ${u.status === 'active' ? 'bgr' : 'bgray'}">${u.status || 'active'}</span></div>`).join('');
+}
+window.renderPwMgmt = renderPwMgmt;
+window.changeMyPw = async function () {
+  const old = document.getElementById('pwd-old')?.value, nw = document.getElementById('pwd-new')?.value, con = document.getElementById('pwd-con')?.value;
+  if (!old || !nw) { toast('Fill all fields', 'error'); return; }
+  if (nw !== con) { toast('Passwords do not match', 'error'); return; }
+  if (nw.length < 4) { toast('Min 4 characters', 'error'); return; }
+  try {
+    if (CR === 'tech') { const idx = techs.findIndex(t => t.id === CU.id); if (techs[idx]?.password !== old) { toast('Wrong current password', 'error'); return; } techs[idx].password = nw; await DB.upsert('technicians', techs[idx]); }
+    else if (CR === 'lead') { const idx = leaders.findIndex(l => l.id === CU.id); if (leaders[idx]?.password !== old) { toast('Wrong password', 'error'); return; } leaders[idx].password = nw; await DB.upsert('leaders', leaders[idx]); }
+    else if (CR === 'ctrl') { const idx = controllers.findIndex(c => c.id === CU.id); if (controllers[idx]?.password !== old) { toast('Wrong password', 'error'); return; } controllers[idx].password = nw; await DB.upsert('controllers', controllers[idx]); }
+    else if (CR === 'mgr') { const idx = managers.findIndex(m => m.id === CU.id); if (managers[idx]?.password !== old) { toast('Wrong password', 'error'); return; } managers[idx].password = nw; await DB.upsert('managers', managers[idx]); }
+    else if (CR === 'dev') { if ((settings.passwords?.dev || 'dev123') !== old) { toast('Wrong password', 'error'); return; } settings.passwords = { ...settings.passwords, dev: nw }; await persistSettings(); }
+    closeModal('m-password'); ['pwd-old', 'pwd-new', 'pwd-con'].forEach(id => sv(id, '')); toast('Password changed');
+  } catch (err) { toast('Change failed: ' + err.message, 'error'); }
+};
+function openForgot() { openModal('m-forgot'); }
+window.openForgot = openForgot;
+window.useRecoveryCode = async function () {
+  const code = document.getElementById('rc-code')?.value.trim(), npw = document.getElementById('rc-newpw')?.value;
+  if (code !== DEV_RECOVERY_CODE) { toast('Invalid recovery code', 'error'); return; }
+  if (!npw || npw.length < 4) { toast('Enter new password (min 4 chars)', 'error'); return; }
+  settings.passwords = { ...settings.passwords, dev: npw }; await persistSettings();
+  sv('rc-code', ''); sv('rc-newpw', ''); closeModal('m-forgot');
+  toast('Developer password reset successfully. You may now log in.');
+};
+window.saveDefPwds = async function () {
+  const tp = sanitize(document.getElementById('def-tech-pwd')?.value), lp = sanitize(document.getElementById('def-lead-pwd')?.value);
+  if (tp) settings.passwords = { ...settings.passwords, tech: tp };
+  if (lp) settings.passwords = { ...settings.passwords, lead: lp };
+  await persistSettings(); closeModal('m-globalpwd'); toast('Default passwords updated');
+};
+window.openMonthTgtModal = function () {
+  const sel = document.getElementById('tgt-sel'); if (!sel) return;
+  sel.innerHTML = '<option value="">Select</option>' + techs.map(t => `<option value="${t.id}">${t.name} (${t.monthlyTarget || 160}h)</option>`).join('');
+  sv('tgt-val', ''); openModal('m-monthtgt');
+};
+window.saveMonthTgt = async function () {
+  const tid = document.getElementById('tgt-sel')?.value, val = parseFloat(document.getElementById('tgt-val')?.value);
+  if (!tid || !val) { toast('Select tech and enter value', 'error'); return; }
+  const idx = techs.findIndex(t => t.id === tid);
+  if (idx > -1) { techs[idx].monthlyTarget = val; await DB.upsert('technicians', techs[idx]); }
+  closeModal('m-monthtgt'); toast('Target updated');
+  if (CR === 'lead' || CR === 'dev') renderDashboard(); else renderTechs();
+};
+
+// ════════════════════════════════════════════════
+//  SYSTEM / BACKUP / FACTORY RESET
+// ════════════════════════════════════════════════
+function renderSystem() {
+  sv('sys-def', settings.defaultMonthlyTarget || 160);
+  const el = document.getElementById('sys-info');
+  if (el) el.innerHTML = `<div class="srow"><div><div class="srl-t">Total Entries</div></div><span class="bdg bblu">${entries.length}</span></div>
+    <div class="srow"><div><div class="srl-t">Technicians</div></div><span class="bdg bgr">${techs.length}</span></div>
+    <div class="srow"><div><div class="srl-t">Parts</div></div><span class="bdg bamb">${parts.length}</span></div>
+    <div class="srow"><div><div class="srl-t">Departments</div></div><span class="bdg bcyn">${departments.length}</span></div>
+    <div class="srow"><div><div class="srl-t">Assignments</div></div><span class="bdg bcyn">${assignments.length}</span></div>
+    <div class="srow"><div><div class="srl-t">Data source</div></div><span class="bdg bgr">Supabase</span></div>`;
+  renderLB();
+}
+window.renderSystem = renderSystem;
+window.saveDefTgt = async function () { settings.defaultMonthlyTarget = parseInt(document.getElementById('sys-def')?.value) || 160; await persistSettings(); toast('Saved'); };
+window.exportBackup = function () {
+  dlFile(JSON.stringify({ techs, parts, leaders, controllers, managers, departments, settings, entries, assignments, shopPerf, profilePics, exportedAt: new Date().toISOString() }, null, 2), 'protrack_backup_' + todayEAT() + '.json', 'application/json');
+  toast('Backup exported');
+};
+window.importBackup = function (input) {
+  const f = input.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = async e => {
+    try {
+      const d = JSON.parse(e.target.result);
+      if (d.techs) for (const t of d.techs) await DB.upsert('technicians', t);
+      if (d.parts) for (const p of d.parts) await DB.upsert('parts', p);
+      if (d.leaders) for (const l of d.leaders) await DB.upsert('leaders', l);
+      if (d.controllers) for (const c of d.controllers) await DB.upsert('controllers', c);
+      if (d.managers) for (const m of d.managers) await DB.upsert('managers', m);
+      if (d.departments) for (const dep of d.departments) await DB.upsert('departments', dep);
+      if (d.entries) for (const en of d.entries) await DB.upsert('entries', en);
+      if (d.assignments) for (const a of d.assignments) await DB.upsert('assignments', a);
+      if (d.shopPerf) for (const s of d.shopPerf) await DB.upsert('shop_performance', s);
+      if (d.settings) { settings = { ...settings, ...d.settings }; await persistSettings(); }
+      toast('Restored. Reloading...'); setTimeout(() => location.reload(), 1000);
+    } catch (err) { toast('Invalid backup', 'error'); }
+  };
+  r.readAsText(f);
+};
+window.factoryReset = async function () {
+  if (!confirm('⚠️ FULL RESET? This deletes all technicians, parts, entries and settings.')) return;
+  try {
+    for (const table of TABLES) { const rows = await DB.list(table); for (const row of rows) await DB.remove(table, row.id); }
+    toast('Reset complete. Reloading...'); setTimeout(() => location.reload(), 1000);
+  } catch (err) { toast('Reset failed: ' + err.message, 'error'); }
+};
+
+// ════════════════════════════════════════════════
+//  VERSION HISTORY
+// ════════════════════════════════════════════════
+function toggleVer() { document.getElementById('ver-history')?.classList.toggle('open'); }
+window.toggleVer = toggleVer;
+
+// ════════════════════════════════════════════════
+//  LOGIN
+// ════════════════════════════════════════════════
+
+async function loadAllData() {
+  const [ts, ls, cs, ms, ps, es, as_, ds, sps] = await Promise.all([
+    DB.list('technicians'), DB.list('leaders'), DB.list('controllers'), DB.list('managers'),
+    DB.list('parts'), DB.list('entries'), DB.list('assignments'), DB.list('departments'), DB.list('shop_performance')
+  ]);
+  techs = ts; leaders = ls; controllers = cs; managers = ms; parts = ps; entries = es; assignments = as_; shopPerf = sps;
+  departments = ds.length ? ds : DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
+  if (!ds.length) { for (const d of departments) await DB.upsert('departments', d); }
+  const savedSettings = await DB.getSettings();
+  if (savedSettings) settings = savedSettings;
+  else { settings.permissions = defaultPermissionsV2(); await persistSettings(); }
+}
+
+async function doLogin() {
+  if (loginAttempts >= 5) {
+    document.getElementById('login-attempts').style.display = 'block';
+    document.getElementById('login-attempts').textContent = 'Too many attempts. Please wait 30 seconds and try again.';
+    toast('Too many login attempts. Please wait 30 seconds and try again.', 'error');
+    setTimeout(() => { loginAttempts = 0; document.getElementById('login-attempts').style.display = 'none'; }, 30000);
+    return;
+  }
+  const id = sanitize(document.getElementById('li-id')?.value).toUpperCase();
+  const pwd = document.getElementById('li-pw')?.value?.trim();
+  if (!id || !pwd) return;
+  const btn = document.getElementById('sign-in-btn'), lbtxt = document.getElementById('lbtn-txt');
+  if (btn) { btn.classList.add('loading'); btn.disabled = true; }
+  if (lbtxt) lbtxt.textContent = 'Signing in…';
+  showLoading('Loading ProTrack…');
+  try { await loadAllData(); } catch (e) { console.warn('Load failed:', e); hideLoading(); if (btn) { btn.classList.remove('loading'); btn.disabled = false; } toast('Could not reach the database. Check your connection.', 'error'); return; }
+  syncAllDeptDropdowns();
+  let user = null, role = '';
+  user = techs.find(t => t.id === id && t.password === pwd); if (user) role = 'tech';
+  if (!user) { user = leaders.find(l => l.id === id && l.password === pwd); if (user) role = 'lead'; }
+  if (!user) { user = controllers.find(c => c.id === id && c.password === pwd); if (user) role = 'ctrl'; }
+  if (!user) { user = managers.find(m => m.id === id && m.password === pwd); if (user) role = 'mgr'; }
+  if (!user) {
+    const devPassword = settings.passwords?.dev || 'dev123';
+    const normalizedDevId = id.replace(/\s+/g, '');
+    if (['DEV001', 'ADMIN', 'DEVELOPER', 'DEVELOPERADMIN'].includes(normalizedDevId) && pwd === devPassword) {
+      user = { id: 'DEV001', name: 'Developer Admin' };
+      role = 'dev';
+    }
+  }
+  if (btn) { btn.classList.remove('loading'); btn.disabled = false; }
+  if (lbtxt) lbtxt.textContent = 'Sign In →';
+  if (!user) {
+    loginAttempts++;
+    const remaining = 5 - loginAttempts;
+    document.getElementById('login-attempts').style.display = 'block';
+    document.getElementById('login-attempts').textContent = loginAttempts >= 5 ? 'Account locked for 30s. Please try again later.' : `Invalid credentials. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`;
+    hideLoading(); toast('Invalid credentials', 'error'); return;
+  }
+  loginAttempts = 0; document.getElementById('login-attempts').style.display = 'none';
+  CU = user; CR = role;
+  try { sessionStorage.setItem('pt-session', JSON.stringify({ id: user.id, role })); } catch (e) {}
+  const avEl = document.getElementById('sb-av');
+  if (avEl) { avEl.innerHTML = avatarHtml(user.id, user.name, 32); avEl.style.background = 'transparent'; }
+  stxt('sb-un', user.name); stxt('sb-ur', ROLE_TITLES[role] || role.toUpperCase());
+  buildNav();
+  document.getElementById('login').classList.remove('on');
+  document.getElementById('app').classList.add('on');
+  hideLoading();
+  const allowedPages = pagesForCurrentRole();
+  const home = allowedPages[0];
+  if (home) {
+    navTo(home);
+  } else {
+    // No page is available for this role/permission set — never leave a blank/unauthorized screen.
+    document.querySelectorAll('.pg').forEach(p => p.classList.remove('on'));
+    document.querySelectorAll('.nl').forEach(l => l.classList.remove('on'));
+    stxt('pg-title', 'No pages available');
+    stxt('pg-desc', 'Your account currently has no page access. Contact your administrator to be granted permissions.');
+    toast('No pages are available for your role yet. Contact an administrator.', 'error');
+  }
+  toast('Welcome, ' + user.name.split(' ')[0] + '!');
+}
+window.doLogin = doLogin;
+window.logout = function () {
+  CU = null; CR = null;
+  try { sessionStorage.removeItem('pt-session'); } catch (e) {}
+  document.getElementById('app').classList.remove('on');
+  document.getElementById('login').classList.add('on');
+  try {
+    const _li = document.getElementById('li-id'); const _lp = document.getElementById('li-pw');
+    if (_lp) _lp.value = '';
+    if (_li) _li.value = '';
+  } catch (e) {}
+};
+
+// ════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  initSupabase();
+  document.getElementById('sign-in-btn')?.addEventListener('click', doLogin);
+  ['li-id', 'li-pw'].forEach(id => document.getElementById(id)?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doLogin(); } }));
+  sv('asn-date', todayEAT());
+  restoreProductionImportState();
+  // Ensure the application does not programmatically retain the login password field value.
+  try { const __lp = document.getElementById('li-pw'); if (__lp) __lp.value = ''; } catch (e) {}
+  ['e-time', 'le-time'].forEach(id => { const el = document.getElementById(id); if (el && !el.value) el.value = todayEAT(); });
+  setTimeout(hideLoading, 800);
+  document.getElementById('login').classList.add('on');
+  const mf = document.getElementById('ms-month-filter'); if (mf && !mf.value) mf.value = todayEAT().slice(0, 7);
+  stxt('ver-current', 'v' + APP_VERSION);
+  if (!sb) {
+    // No Supabase configured on this page
+    const hint = document.getElementById('login-attempts');
+    if (hint) { hint.style.display = 'block'; hint.textContent = 'No database connected. Please check your Supabase configuration.'; }
+  }
+});
+
+</script>
+</body>
+</html>
+
