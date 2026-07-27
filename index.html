@@ -329,7 +329,7 @@ tbody tr:hover td{background:var(--card2);}
 @media(min-width:640px){.mbg{align-items:center;padding:20px;}}
 .modal{background:var(--card);border:1px solid var(--bdr);border-radius:14px 14px 0 0;width:100%;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;animation:slideUp .25s ease;}
 @media(min-width:640px){.modal{border-radius:14px;animation:fi .2s ease;}}
-.msm{max-width:460px;}.mmd{max-width:560px;}.mlg{max-width:740px;}
+.msm{max-width:460px;}.mmd{max-width:560px;}.mlg{max-width:740px;}.mxl{max-width:1120px;}
 @keyframes slideUp{from{transform:translateY(40px);opacity:0;}to{transform:translateY(0);opacity:1;}}
 .mhd{padding:16px 20px;border-bottom:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:flex-start;flex-shrink:0;}
 .mttl{font-size:15px;font-weight:700;}
@@ -1277,6 +1277,48 @@ input[type="date"] {
 @media (max-width: 600px) { .sr-comment-block { grid-template-columns: 1fr; } }
 .sr-comment-box { background: var(--inp-bg); border: 1px solid var(--bdr); border-radius: 10px; padding: 10px 12px; }
 .sr-comment-label { font-size: 10px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: var(--tx3); margin-bottom: 5px; }
+
+/* ═══════ SHOP COMPARISON DASHBOARD ═══════ */
+.sc-header{padding:14px 16px;background:var(--card2);border:1px solid var(--bdr);border-radius:12px;margin-bottom:16px;}
+.sc-header-title{font-size:16px;font-weight:800;margin-bottom:2px;}
+.sc-header-sub{font-size:12px;color:var(--tx2);}
+.sc-header-stats{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;}
+.sc-header-stat{display:flex;flex-direction:column;gap:2px;}
+.sc-header-stat .lbl{font-size:10px;color:var(--tx3);text-transform:uppercase;font-weight:700;letter-spacing:.4px;}
+.sc-header-stat .val{font-size:17px;font-weight:800;}
+.sc-section{background:var(--card);border:1px solid var(--bdr);border-radius:12px;padding:14px 16px;margin-bottom:16px;}
+.sc-section-title{font-size:13px;font-weight:800;margin-bottom:12px;display:flex;align-items:center;gap:6px;}
+.sc-bar-row{display:grid;grid-template-columns:120px 1fr 56px;align-items:center;gap:10px;margin-bottom:10px;font-size:12.5px;}
+.sc-bar-row:last-child{margin-bottom:0;}
+.sc-bar-label{color:var(--tx2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sc-bar-track{height:16px;background:var(--inp-bg);border-radius:8px;overflow:hidden;position:relative;}
+.sc-bar-fill{height:100%;border-radius:8px;transition:width .3s;}
+.sc-bar-value{text-align:right;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:12px;}
+.sc-bar-good{background:var(--green);}
+.sc-bar-warn{background:var(--amber);}
+.sc-bar-bad{background:var(--rose);}
+.sc-grouped-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin-bottom:12px;}
+.sc-grouped-row:last-child{margin-bottom:0;}
+.sc-grouped-bars{display:flex;flex-direction:column;gap:4px;}
+.sc-grouped-bar-line{display:flex;align-items:center;gap:8px;}
+.sc-grouped-bar-line .tag{font-size:10px;width:44px;flex-shrink:0;color:var(--tx3);font-weight:700;text-transform:uppercase;}
+.sc-grouped-track{flex:1;height:12px;background:var(--inp-bg);border-radius:6px;overflow:hidden;}
+.sc-grouped-fill{height:100%;border-radius:6px;}
+.sc-grouped-num{width:44px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;flex-shrink:0;}
+.sc-rank-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--bdr);font-size:13px;}
+.sc-rank-row:last-child{border-bottom:none;}
+.sc-rank-num{width:24px;height:24px;border-radius:50%;background:var(--card2);border:1px solid var(--bdr);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;}
+.sc-rank-name{flex:1;font-weight:600;}
+.sc-rank-tat{font-family:'JetBrains Mono',monospace;font-weight:700;}
+.sc-score-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;}
+.sc-score-card{background:var(--card2);border:1px solid var(--bdr);border-radius:10px;padding:12px;}
+.sc-score-name{font-weight:700;font-size:13px;margin-bottom:6px;}
+.sc-score-num{font-size:24px;font-weight:800;margin-bottom:4px;}
+.sc-score-badge{display:inline-block;padding:3px 9px;border-radius:99px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;}
+.sc-badge-good{background:var(--gdim);color:var(--green);}
+.sc-badge-warn{background:var(--adim);color:var(--amber);}
+.sc-badge-bad{background:var(--rdim);color:var(--rose);}
+.sc-empty{text-align:center;padding:30px;color:var(--tx3);font-size:13px;}
 .sr-mgr-comment-box { background: var(--cdim); border: 1px solid rgba(6,182,212,.2); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
 .sr-mgr-label { font-size: 10px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: var(--cyan); margin-bottom: 5px; }
 .sr-mgr-add { background: var(--card2); border: 1px solid var(--bdr); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
@@ -1701,8 +1743,8 @@ input[type="date"] {
 <div class="prod-import-actions">
 <button class="btn bo bsm" onclick="clearProductionImportPreview()">Clear Preview</button>
 <button class="btn bo bsm" onclick="validateProductionImportPreview()">Validate all</button>
-<button class="btn bo bsm" onclick="applyBulkDuplicateResolution('accept')">Accept Duplicates</button>
-<button class="btn bo bsm" onclick="applyBulkDuplicateResolution('remove')">Remove Duplicates</button>
+<button class="btn bo bsm" data-perm="importproduction:acceptduplicates" onclick="applyBulkDuplicateResolution('accept')">Accept All Duplicates</button>
+<button class="btn bo bsm" data-perm="importproduction:removeduplicates" onclick="applyBulkDuplicateResolution('remove')">Remove All Duplicates</button>
 <button class="btn bp bsm" data-action="productionImport.commit" onclick="commitProductionImport()">Confirm Import</button>
 </div>
 </div>
@@ -2209,8 +2251,8 @@ input[type="date"] {
 </select>
 <button class="btn bo bsm" onclick="renderShopReport()">⟳</button>
 <div class="export-group" style="margin-left:auto;">
+<button class="btn bp bsm" data-perm="shopreport:comparison" onclick="openShopComparisonDashboard()">📊 Shop Comparison</button>
 <button class="btn bo bsm" onclick="toggleShopReportTable()">Show Raw Table</button>
-<button class="btn bo bsm" data-perm="shopreport:export" onclick="exportShopReport('pdf')">⬇ PDF</button>
 <button class="btn bo bsm" data-perm="shopreport:export" onclick="exportShopReport('csv')">⬇ CSV</button>
 </div>
 </div>
@@ -2220,22 +2262,6 @@ input[type="date"] {
   <div class="kpi-row" id="sr-kpi-row" style="display:none"></div>
 <div class="sp-range-summary" id="sp-range-summary"></div>
 <div class="sp-weekly-grid" id="sp-weekly-grid" style="--week-count: 0;"></div>
-<div class="card" style="margin-top:14px;">
-<div class="ch"><span class="ct">📝 Manager Comment</span></div>
-<div class="cb">
-<div class="sr-mgr-add">
-<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;">
-<div class="fgroup" style="flex:1;min-width:180px;"><label class="flabel">Department</label><select class="fselect" id="sr-comment-dept"></select></div>
-<div class="fgroup" style="min-width:220px;"><label class="flabel">Reporting Range</label><div class="mono" id="sr-comment-range" style="padding:8px 10px;border:1px solid var(--bdr);border-radius:8px;background:var(--inp-bg);color:var(--tx2);">—</div></div>
-</div>
-<textarea class="finput" id="sr-comment-input" rows="4" placeholder="Add manager comments for this department and reporting range..."></textarea>
-<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px;">
-<div id="sr-comment-meta" style="font-size:11px;color:var(--tx3);">—</div>
-<button class="btn bp bsm" onclick="saveShopReportComment()">Save Comment</button>
-</div>
-</div>
-</div>
-</div>
 <div id="sr-table-wrapper" class="tw" style="margin-top:12px;display:none"><table><thead><tr><th>Department</th><th>Output Target</th><th>Actual Output</th><th>Attainment</th><th>Avg TAT</th><th>Total Inventory</th><th>WFP</th><th>Weeks Logged</th><th>Action</th></tr></thead>
 <tbody id="sr-body"></tbody></table></div>
 </div>
@@ -2259,7 +2285,20 @@ input[type="date"] {
 <div class="mbody" id="m-sr-detail-body"></div>
 </div>
 </div>
+<div class="mbg" id="m-shopcomparison">
+<div class="modal mxl">
+<div class="mhd"><div><div class="mttl">📊 Shop Comparison Dashboard</div><div class="msub" id="sc-range-sub">Comparing all visible departments</div></div><button class="mxb" onclick="closeModal('m-shopcomparison')">✕</button></div>
+<div class="mbody">
+<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+<button class="btn bo bsm" data-perm="shopreport:exportimage" onclick="exportShopComparisonImage('png')">⬇ PNG</button>
+<button class="btn bo bsm" data-perm="shopreport:exportimage" onclick="exportShopComparisonImage('jpg')">⬇ JPG</button>
+</div>
+<div id="sc-content"></div>
+</div>
+</div>
+</div>
 <div class="mbg" id="m-review">
+
 <div class="modal mmd">
 <div class="mhd"><div><div class="mttl">✅ Confirm Entry</div><div class="msub">Review your data before saving</div></div><button class="mxb" onclick="closeModal('m-review')">✕</button></div>
 <div class="mbody" id="m-review-body"></div>
@@ -2481,7 +2520,7 @@ input[type="date"] {
 // ────────────────────────────────────────────────
 //  CONSTANTS
 // ────────────────────────────────────────────────
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.1.0';
 const DEV_RECOVERY_CODE = 'PROTRACK-DEV-2025-RESET';
 const EAT_TZ = 'Africa/Addis_Ababa';
 const ROLES = ['Technician', 'Under Supervision', 'Inspector', 'Preliminary Inspector'];
@@ -2810,8 +2849,8 @@ function syncAllDeptDropdowns() {
 //  role can see and do anywhere in the app. Developer always has
 //  full, unconditional access and is not represented in this tree.
 // ════════════════════════════════════════════════
-const PERM_ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'reject', 'export', 'import', 'submit', 'comment'];
-const PERM_ACTION_LABELS = { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete', approve: 'Approve', reject: 'Reject', export: 'Export', import: 'Import', submit: 'Submit', comment: 'Comment' };
+const PERM_ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'reject', 'export', 'import', 'submit', 'comment', 'comparison', 'exportimage', 'removeduplicates', 'acceptduplicates'];
+const PERM_ACTION_LABELS = { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete', approve: 'Approve', reject: 'Reject', export: 'Export', import: 'Import', submit: 'Submit', comment: 'Comment', comparison: 'Shop Comparison', exportimage: 'Export Comparison Image', removeduplicates: 'Remove Duplicate Entries', acceptduplicates: 'Accept Duplicate Entries' };
 const PERM_ROLES = ['lead', 'mgr', 'ctrl', 'tech'];
 const PERM_ROLE_LABELS = { lead: 'Team Leader', mgr: 'Manager', ctrl: 'Production Controller', tech: 'Technician' };
 
@@ -2823,7 +2862,7 @@ const PERMISSION_SCHEMA = [
     { key: 'entry', label: 'Production Entry', actions: ['view', 'submit'] },
     { key: 'mystats', label: 'My Results', actions: ['view', 'export'] },
     { key: 'controllerentry', label: 'Controller Entry', actions: ['view', 'submit'] },
-    { key: 'importproduction', label: 'Import Production', actions: ['view', 'import'] },
+    { key: 'importproduction', label: 'Import Production', actions: ['view', 'import', 'removeduplicates', 'acceptduplicates'] },
     { key: 'taskgroups', label: 'Task Code Groups', actions: ['view', 'export'] }
   ]},
   { key: 'oversight', label: 'Oversight & Reporting', icon: '📈', pages: [
@@ -2834,7 +2873,7 @@ const PERMISSION_SCHEMA = [
   ]},
   { key: 'shopops', label: 'Shop Operations', icon: '🏭', pages: [
     { key: 'shopperformance', label: 'Shop Performance', actions: ['view', 'edit', 'comment'] },
-    { key: 'shopreport', label: 'Shop Report', actions: ['view', 'export', 'comment'] }
+    { key: 'shopreport', label: 'Shop Report', actions: ['view', 'export', 'comment', 'comparison', 'exportimage'] }
   ]},
   { key: 'people', label: 'People & Resources', icon: '👥', pages: [
     { key: 'techs', label: 'Technicians', actions: ['view', 'create', 'edit', 'delete', 'import'] },
@@ -2862,18 +2901,18 @@ const DEFAULT_PERMISSIONS_V2 = {
   lead: {
     dashboard: mkPerm(['view', 'export']), controllerentry: mkPerm(['view', 'submit']),
     assignments: mkPerm(['view', 'create', 'delete']), allentries: mkPerm(['view', 'edit', 'delete', 'approve', 'reject', 'export']),
-    importproduction: mkPerm(['view', 'import']), reports: mkPerm(['view', 'export']), ratios: mkPerm(['view', 'edit']),
-    taskgroups: mkPerm(['view', 'export']), shopperformance: mkPerm(['view', 'edit', 'comment']), shopreport: mkPerm(['view', 'export', 'comment']),
+    importproduction: mkPerm(['view', 'import', 'removeduplicates', 'acceptduplicates']), reports: mkPerm(['view', 'export']), ratios: mkPerm(['view', 'edit']),
+    taskgroups: mkPerm(['view', 'export']), shopperformance: mkPerm(['view', 'edit', 'comment']), shopreport: mkPerm(['view', 'export', 'comment', 'comparison', 'exportimage']),
     leaders: mkPerm(['view', 'create', 'edit', 'delete']), controllers: mkPerm(['view', 'create', 'edit', 'delete']),
     techs: mkPerm(['view', 'create', 'edit', 'delete', 'import']), parts: mkPerm(['view', 'create', 'edit', 'delete', 'import'])
   },
   mgr: {
     dashboard: mkPerm(['view', 'export']), allentries: mkPerm(['view', 'export']), reports: mkPerm(['view', 'export']),
-    taskgroups: mkPerm(['view', 'export']), shopperformance: mkPerm(['view', 'comment']), shopreport: mkPerm(['view', 'export', 'comment'])
+    taskgroups: mkPerm(['view', 'export']), shopperformance: mkPerm(['view', 'comment']), shopreport: mkPerm(['view', 'export', 'comment', 'comparison', 'exportimage'])
   },
   ctrl: {
     controllerentry: mkPerm(['view', 'submit']), allentries: mkPerm(['view', 'edit', 'delete', 'export']),
-    taskgroups: mkPerm(['view', 'export']), importproduction: mkPerm(['view', 'import'])
+    taskgroups: mkPerm(['view', 'export']), importproduction: mkPerm(['view', 'import', 'removeduplicates', 'acceptduplicates'])
   },
   tech: { entry: mkPerm(['view', 'submit']), mystats: mkPerm(['view', 'export']), taskgroups: mkPerm(['view']) }
 };
@@ -4633,10 +4672,11 @@ function openEmployeeSelectionModal(rowIndex) {
           <div style="padding:12px;background:var(--inp-bg);border:1px solid var(--bdr);border-radius:8px;margin-bottom:10px;">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
               <div>
+                <div style="font-size:10px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--tx3);margin-bottom:3px;">Employee ID / Name</div>
                 <div style="font-weight:600;color:${badgeColor};">${escapeHtml(emp.name || emp.rawId)}</div>
                 <div style="font-size:12px;color:var(--tx2);font-family:monospace;">${escapeHtml(emp.rawId)}</div>
                 <div style="font-size:11px;color:${badgeColor};">${isValid ? '✓ Found in system' : '✗ Not found'}</div>
-                <div style="font-size:11px;color:var(--tx3);margin-top:4px;">Task: ${escapeHtml(target.entry?.taskCode || '—')} · Role: ${escapeHtml(target.entry?.jobRole || '—')}</div>
+                <div style="font-size:11px;color:var(--tx3);margin-top:4px;">Task Code: <strong style="color:var(--tx2);">${escapeHtml(target.entry?.taskCode || '—')}</strong> · Role: <strong style="color:var(--tx2);">${escapeHtml(target.entry?.jobRole || '—')}</strong></div>
               </div>
               <div style="display:flex;flex-wrap:wrap;gap:6px;">
                 ${isValid ? `<button class="btn bp bsm" onclick="selectEmployeeForImport('${escapeHtml(emp.rawId)}')" style="padding:6px 10px;">Select one employee</button>` : ''}
@@ -4911,6 +4951,8 @@ function getDuplicatePreviewGroups(preview = []) {
   return groups;
 }
 function applyBulkDuplicateResolution(action = 'remove') {
+  const permKey = action === 'accept' ? 'acceptduplicates' : 'removeduplicates';
+  if (!canI('importproduction', permKey)) { toast('You do not have permission to ' + (action === 'accept' ? 'accept' : 'remove') + ' duplicates in bulk', 'error'); return; }
   const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
   const groups = getDuplicatePreviewGroups(preview);
   if (!groups.length) { toast('No duplicate rows detected', 'info'); return; }
@@ -5458,6 +5500,9 @@ const SP_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 function sundayOf(mondayStr) { return addDays(mondayStr, 6); }
 function canEditShopPerfData(dept) { return CR === 'dev' || (canI('shopperformance', 'edit') && currentUserDeptScope().includes(dept)); }
 function canCommentShopPerf(dept) { return CR === 'dev' || (canI('shopperformance', 'comment') && currentUserDeptScope().includes(dept)); }
+// Manager Comment permission for the Shop Report page itself — comments live on the specific
+// weekly record / Shop Report Detail card, scoped to the departments the user is allowed to access.
+function canCommentShopReport(dept) { return CR === 'dev' || (canI('shopreport', 'comment') && currentUserDeptScope().includes(dept)); }
 function shopDeptOptionsForUser() {
   if (CR === 'dev') return departments;
   const scope = currentUserDeptScope();
@@ -5742,55 +5787,53 @@ function summarizeShopReportByDept(rows) {
 function renderShopReportComment(comment, author, at, emptyText = 'No manager comments') {
   return `<div class="sr-comment-box"><div class="sr-comment-label">Manager comment</div><div style="font-size:13px;color:${comment ? 'var(--tx)' : 'var(--tx3)'};">${escapeHtml(comment || emptyText)}</div>${comment ? `<div style="font-size:11px;color:var(--tx3);margin-top:6px;">${author ? `By ${escapeHtml(author)} · ` : ''}${escapeHtml(at || '')}</div>` : ''}</div>`;
 }
-function getShopReportCommentKey(deptId, fromDate, toDate) {
-  return `${deptId || ''}|${String(fromDate || '').slice(0, 10)}|${String(toDate || '').slice(0, 10)}`;
-}
-function getShopReportCommentByRange(deptId, fromDate, toDate) {
-  const key = getShopReportCommentKey(deptId, fromDate, toDate);
-  const store = settings?.shopReportComments || {};
-  return store[key] || null;
-}
-function renderShopReportCommentEditor() {
-  const deptEl = document.getElementById('sr-comment-dept');
-  const rangeEl = document.getElementById('sr-comment-range');
-  const textarea = document.getElementById('sr-comment-input');
-  const metaEl = document.getElementById('sr-comment-meta');
-  if (!deptEl || !textarea) return;
-  const opts = shopDeptOptionsForUser();
-  const currentValue = deptEl.value || opts[0]?.id || '';
-  deptEl.innerHTML = opts.length ? opts.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('') : '<option value="">No department available</option>';
-  if (opts.some(o => o.id === currentValue)) deptEl.value = currentValue;
-  else if (opts[0]) deptEl.value = opts[0].id;
-  const dept = deptEl.value;
-  const from = document.getElementById('sr-dt-from')?.value || '';
-  const to = document.getElementById('sr-dt-to')?.value || '';
-  if (rangeEl) rangeEl.textContent = `${from || '—'} → ${to || '—'}`;
-  const entry = getShopReportCommentByRange(dept, from, to);
-  textarea.value = entry?.comment || '';
-  textarea.disabled = !canI('shopreport', 'comment') && CR !== 'dev';
-  const saveBtn = document.querySelector('#pg-shopreport .btn.bp.bsm[onclick="saveShopReportComment()"]');
-  if (saveBtn) saveBtn.style.display = (canI('shopreport', 'comment') || CR === 'dev') ? '' : 'none';
-  if (metaEl) {
-    metaEl.textContent = entry?.comment
-      ? `Last updated by ${escapeHtml(entry.author || 'Manager')} on ${escapeHtml(entry.updatedAt || '')}`
-      : 'No comment saved for this department and range yet.';
+// Builds a Manager Comment box that is either read-only or an inline editor, tied to one
+// specific department + week (i.e. one shopPerf record) rather than a general date range.
+// This keeps the comment visibly attached to the exact weekly record / Shop Report Detail
+// card it belongs to, and reuses the same managerComment/managerCommentBy/managerCommentAt
+// fields already written by the Shop Performance page, so both stay in sync automatically.
+function renderShopReportCommentEditable(deptId, weekStart, comment, author, at) {
+  const editable = canCommentShopReport(deptId);
+  const uid = `srmc_${normDeptId(deptId)}_${String(weekStart || '').replace(/[^a-zA-Z0-9]/g, '')}`;
+  const meta = comment
+    ? `Last updated by ${escapeHtml(author || 'Manager')} on ${escapeHtml(at || '')}`
+    : 'No comment saved for this week yet.';
+  if (!editable) {
+    return renderShopReportComment(comment, author, at, 'No manager comments for this week');
   }
+  return `<div class="sr-comment-box">
+    <div class="sr-comment-label">Manager comment</div>
+    <textarea class="finput" id="ta-${uid}" rows="3" placeholder="Add a manager comment for this department and week…">${escapeHtml(comment || '')}</textarea>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px;">
+      <div id="meta-${uid}" style="font-size:11px;color:var(--tx3);">${meta}</div>
+      <button class="btn bp bsm" onclick="saveShopReportManagerComment('${deptId}','${weekStart}','${uid}')">💬 Save Comment</button>
+    </div>
+  </div>`;
 }
-window.renderShopReportCommentEditor = renderShopReportCommentEditor;
-window.saveShopReportComment = async function() {
-  const deptEl = document.getElementById('sr-comment-dept');
-  const textarea = document.getElementById('sr-comment-input');
-  const from = document.getElementById('sr-dt-from')?.value || '';
-  const to = document.getElementById('sr-dt-to')?.value || '';
-  if (!deptEl || !textarea) return;
-  if (!canI('shopreport', 'comment') && CR !== 'dev') { toast('You do not have permission to save report comments', 'error'); return; }
-  const dept = deptEl.value;
+// Saves a manager comment for one specific department + week directly onto its shopPerf
+// record. Shared storage with the Shop Performance page's own comment field, so editing
+// from either place keeps both views consistent.
+window.saveShopReportManagerComment = async function (deptId, weekStart, uid) {
+  if (!canCommentShopReport(deptId)) { toast('You do not have permission to comment on this department', 'error'); return; }
+  const textarea = document.getElementById(`ta-${uid}`);
+  if (!textarea) return;
   const comment = sanitize(textarea.value);
-  const key = getShopReportCommentKey(dept, from, to);
-  settings.shopReportComments = { ...(settings?.shopReportComments || {}), [key]: { deptId: dept, rangeStart: from, rangeEnd: to, comment, author: CU?.name || 'Manager', updatedAt: todayEAT() } };
-  await persistSettings();
-  renderShopReportCommentEditor();
-  toast('Report comment saved');
+  const existing = shopPerf.find(s => s.dept === deptId && s.weekStart === weekStart);
+  const rec = { ...(existing || { dept: deptId, weekStart, daily: emptyDaily(), totalInventory: 0, longestInventory: 0, wfp: 0 }), managerComment: comment, managerCommentBy: CU?.name || '', managerCommentAt: todayEAT() };
+  try {
+    const saved = await DB.upsert('shop_performance', rec);
+    if (existing) { const idx = shopPerf.findIndex(s => s.id === existing.id); shopPerf[idx] = saved; } else shopPerf.push(saved);
+    toast('Comment saved');
+    // Refresh whichever Shop Report views are currently open/rendered.
+    const weekBody = document.getElementById('m-sr-detail-body');
+    if (weekBody && weekBody.querySelector(`#ta-${uid}`)) {
+      // Re-render whichever detail view is showing this record.
+      if (weekBody.innerHTML.includes('Daily Entries')) openShopReportWeekDetail(deptId, weekStart);
+      else openShopReportDetail(deptId);
+    }
+    renderShopReport();
+    if (document.getElementById('pg-shopperformance')?.classList.contains('on')) renderShopPerformance();
+  } catch (err) { console.error(err); toast('Save failed', 'error'); }
 };
 function renderShopReport() {
   const rr = getUIRange('sr');
@@ -5834,7 +5877,6 @@ function renderShopReport() {
   }).join('') : '<tr><td colspan="9" class="empty">No shop performance data in this range</td></tr>';
   applyPermVisibility();
   if (summary) summary.innerHTML = `<span class="sp-pill">Range: ${escapeHtml(rr.start || '—')} → ${escapeHtml(rr.end || '—')}</span><span class="sp-pill">Departments: ${departments.length}</span><span class="sp-pill">Week submissions: ${rows.length}</span>`;
-  renderShopReportCommentEditor();
   if (grid) {
     if (!departments.length) {
       grid.innerHTML = '<div class="empty">No shop performance data to render</div>';
@@ -5873,7 +5915,7 @@ function openShopReportDetail(deptId) {
     const weeklyOutput = r.weeklyOutput ?? (r.daily || []).reduce((s, d) => s + (d.actual || 0), 0);
     const attainment = weeklyTarget ? Math.round((weeklyOutput / weeklyTarget) * 100) : 0;
     const cls = attainment >= 100 ? 'bgr' : attainment >= 80 ? 'bamb' : 'bred';
-    const mgrComment = renderShopReportComment(r.managerComment, r.managerCommentBy || 'Manager', r.managerCommentAt, 'No manager comments for this week');
+    const mgrComment = renderShopReportCommentEditable(deptId, r.weekStart, r.managerComment, r.managerCommentBy || 'Manager', r.managerCommentAt);
     const wfpManual = typeof r.wfpManual !== 'undefined' ? Number(r.wfpManual) : null;
     const wfpAuto = typeof r.wfpAuto !== 'undefined' ? Number(r.wfpAuto) : null;
     const wfpTotal = typeof r.wfp !== 'undefined' ? Number(r.wfp) : ((wfpManual || 0) + (wfpAuto || 0));
@@ -5919,7 +5961,7 @@ function openShopReportWeekDetail(deptId, weekStart) {
     const day = (row.daily || [])[idx] || {};
     return `<tr><td>${escapeHtml(dayName)}</td><td class="mono">${day.target ?? 0}</td><td class="mono">${day.actual ?? 0}</td><td class="mono">${day.input ?? 0}</td><td class="mono">${Number(day.tat ?? 0).toFixed(1)}d</td></tr>`;
   }).join('');
-  body.innerHTML = `<div class="sr-detail-card"><div class="sr-breadcrumb"><span class="sr-breadcrumb-item">Shop Report</span><span class="sr-breadcrumb-separator">→</span><span class="sr-breadcrumb-item">${escapeHtml(deptLabel(deptId))}</span><span class="sr-breadcrumb-separator">→</span><span class="sr-breadcrumb-item">${escapeHtml(row.weekLabel || fmtEAT(row.weekStart, 'date'))}</span></div><div class="sr-detail-head"><div><div style="font-size:16px;font-weight:800;">${escapeHtml(deptLabel(deptId))}</div><div style="font-size:12px;color:var(--tx3);margin-top:2px;">Week ${escapeHtml(row.weekLabel || fmtEAT(row.weekStart, 'date'))}</div></div><button class="btn bo bsm" onclick="openShopReportDetail('${deptId}')">← Back</button></div><div class="sr-detail-grid"><div class="sr-detail-cell"><div class="sr-detail-label">Target</div><div class="sr-detail-value">${weeklyTarget}</div></div><div class="sr-detail-cell"><div class="sr-detail-label">Output</div><div class="sr-detail-value">${weeklyOutput}</div></div><div class="sr-detail-cell"><div class="sr-detail-label">Attainment</div><div class="sr-detail-value"><span class="bdg ${cls}">${attainment}%</span></div></div><div class="sr-detail-cell"><div class="sr-detail-label">Avg TAT</div><div class="sr-detail-value">${Number(row.weeklyAvgTat || 0).toFixed(1)}d</div></div><div class="sr-detail-cell"><div class="sr-detail-label">Inventory</div><div class="sr-detail-value">${row.totalInventory || 0} <span style="font-size:11px;color:var(--tx3);">(Longest ${row.longestInventory || 0})</span></div></div><div class="sr-detail-cell"><div class="sr-detail-label">WFP</div><div class="sr-detail-value">${row.wfp ?? ((row.wfpManual||0)+(row.wfpAuto||0))} <span style="font-size:11px;color:var(--tx3);">(Manual: ${row.wfpManual ?? 0} · Auto: ${row.wfpAuto ?? 0})</span></div></div></div><div class="card" style="margin-top:14px;"><div class="ch"><span class="ct">Daily Entries</span></div><div class="cb"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left; padding:8px; border-bottom:1px solid var(--bdr);">Day</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">Target</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">Actual</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">Input</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">TAT</th></tr></thead><tbody>${rowsHtml}</tbody></table></div></div>${renderShopReportComment(row.managerComment, row.managerCommentBy || 'Manager', row.managerCommentAt, 'No manager comments for this week')}</div>`;
+  body.innerHTML = `<div class="sr-detail-card"><div class="sr-breadcrumb"><span class="sr-breadcrumb-item">Shop Report</span><span class="sr-breadcrumb-separator">→</span><span class="sr-breadcrumb-item">${escapeHtml(deptLabel(deptId))}</span><span class="sr-breadcrumb-separator">→</span><span class="sr-breadcrumb-item">${escapeHtml(row.weekLabel || fmtEAT(row.weekStart, 'date'))}</span></div><div class="sr-detail-head"><div><div style="font-size:16px;font-weight:800;">${escapeHtml(deptLabel(deptId))}</div><div style="font-size:12px;color:var(--tx3);margin-top:2px;">Week ${escapeHtml(row.weekLabel || fmtEAT(row.weekStart, 'date'))}</div></div><button class="btn bo bsm" onclick="openShopReportDetail('${deptId}')">← Back</button></div><div class="sr-detail-grid"><div class="sr-detail-cell"><div class="sr-detail-label">Target</div><div class="sr-detail-value">${weeklyTarget}</div></div><div class="sr-detail-cell"><div class="sr-detail-label">Output</div><div class="sr-detail-value">${weeklyOutput}</div></div><div class="sr-detail-cell"><div class="sr-detail-label">Attainment</div><div class="sr-detail-value"><span class="bdg ${cls}">${attainment}%</span></div></div><div class="sr-detail-cell"><div class="sr-detail-label">Avg TAT</div><div class="sr-detail-value">${Number(row.weeklyAvgTat || 0).toFixed(1)}d</div></div><div class="sr-detail-cell"><div class="sr-detail-label">Inventory</div><div class="sr-detail-value">${row.totalInventory || 0} <span style="font-size:11px;color:var(--tx3);">(Longest ${row.longestInventory || 0})</span></div></div><div class="sr-detail-cell"><div class="sr-detail-label">WFP</div><div class="sr-detail-value">${row.wfp ?? ((row.wfpManual||0)+(row.wfpAuto||0))} <span style="font-size:11px;color:var(--tx3);">(Manual: ${row.wfpManual ?? 0} · Auto: ${row.wfpAuto ?? 0})</span></div></div></div><div class="card" style="margin-top:14px;"><div class="ch"><span class="ct">Daily Entries</span></div><div class="cb"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left; padding:8px; border-bottom:1px solid var(--bdr);">Day</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">Target</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">Actual</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">Input</th><th style="text-align:right; padding:8px; border-bottom:1px solid var(--bdr);">TAT</th></tr></thead><tbody>${rowsHtml}</tbody></table></div></div>${renderShopReportCommentEditable(deptId, row.weekStart, row.managerComment, row.managerCommentBy || 'Manager', row.managerCommentAt)}</div>`;
   openModal('m-sr-detail');
 }
 window.openShopReportDetail = openShopReportDetail;
@@ -5985,314 +6027,88 @@ function toggleShopReportTable() {
 }
 
 // ════════════════════════════════════════════════
-//  NAVIGATION
+//  SHOP COMPARISON DASHBOARD
+//  Compares all departments the current user is allowed to see, over the same
+//  date range currently selected on the Shop Report page. Built from the same
+//  aggregation used by the Shop Report table (summarizeShopReportByDept), so
+//  the numbers always match what's shown in the report itself.
 // ════════════════════════════════════════════════
-// Pages that are always Developer-only, and the full set of pages a Developer can reach —
-// both derived from PERMISSION_SCHEMA (defined in the permissions module) so there is one
-// single source of truth for the app's page map.
-const DEV_ONLY_PAGES = DEV_ONLY_PAGE_KEYS;
-const DEV_ALL_PAGES = Object.keys(PERM_PAGE_INDEX);
-const META = {
-  entry: { t: 'Production Entry', d: 'Log completed or scrap work' }, mystats: { t: 'My Results', d: 'Personal KPI and history' },
-  dashboard: { t: 'Dashboard', d: 'Real-time performance' }, assignments: { t: 'Assignments', d: 'Assign tasks to technicians' },
-  allentries: { t: 'All Entries', d: 'Complete production log' }, controllerentry: { t: 'Production Controller Entry', d: 'Log entry on behalf of a technician' },
-  importproduction: { t: 'Import Production', d: 'Bulk import from Excel/CSV' }, reports: { t: 'Reports', d: 'Monthly Target summary' },
-  ratios: { t: 'Hour Ratio Settings', d: 'Set SDT % and inspector fixed hours' }, taskgroups: { t: 'Task Code Groups', d: 'Personnel grouped by JIC task code' },
-  techs: { t: 'Manage Technicians', d: '' }, parts: { t: 'Parts & Inventory', d: '' }, leaders: { t: 'Team Leaders', d: '' }, controllers: { t: 'Production Controllers', d: '' },
-  managers: { t: 'Managers', d: 'Multi-department oversight accounts' }, departments: { t: 'Departments', d: 'Manage shop departments' },
-  permissions: { t: 'Permissions', d: 'Role access control' }, pwmgmt: { t: 'Password Management', d: 'Reset user passwords' }, system: { t: 'System Settings', d: '' },
-  shopperformance: { t: 'Shop Performance', d: 'Weekly department hours' }, shopreport: { t: 'Shop Report', d: 'Aggregate shop performance' }
-};
-const ICONS = {
-  entry: '⊕', mystats: '📊', dashboard: '🖥', assignments: '📌', allentries: '📋', controllerentry: '⊕', importproduction: '📥', reports: '📈',
-  ratios: '⚖️', taskgroups: '🗂', techs: '👷', parts: '🔩', leaders: '👥', controllers: '🏭', managers: '🧑‍💼', departments: '🏢',
-  permissions: '🔐', pwmgmt: '🔐', system: '⚙️', shopperformance: '📅', shopreport: '🏭'
-};
-function pagesForCurrentRole() {
-  if (CR === 'dev') return DEV_ALL_PAGES;
-  return Object.keys(PERM_PAGE_INDEX).filter(p => !DEV_ONLY_PAGE_KEYS.includes(p) && roleCanSeePage(CR, p));
-}
-function buildNav() {
-  const nav = document.getElementById('sbnav'); if (!nav) return;
-  nav.innerHTML = '<div class="sb-sec">Menu</div>' + pagesForCurrentRole().map(p => `<div class="nl" data-page="${p}" onclick="navTo('${p}');closeSidebar();"><span class="ni">${ICONS[p] || '•'}</span>${META[p]?.t || p}</div>`).join('');
-}
-window.buildNav = buildNav;
-window.navTo = function (page) {
-  if (CR !== 'dev') {
-    if (DEV_ONLY_PAGES.includes(page)) { toast('Page not available for your role', 'error'); return; }
-    if (!roleCanSeePage(CR, page)) { toast('You do not have access to this page', 'error'); return; }
-  }
-  document.querySelectorAll('.pg').forEach(p => p.classList.remove('on'));
-  document.querySelectorAll('.nl').forEach(l => l.classList.remove('on'));
-  document.getElementById('pg-' + page)?.classList.add('on');
-  document.querySelector(`.nl[data-page="${page}"]`)?.classList.add('on');
-  const m = META[page] || {}; stxt('pg-title', m.t || page); stxt('pg-desc', m.d || '');
-  if (page === 'entry') renderEntry();
-  if (page === 'mystats') { const mf = document.getElementById('ms-month-filter'); if (mf && !mf.value) mf.value = todayEAT().slice(0, 7); renderMyStats(); }
-  if (page === 'dashboard') { populateTechFilter(); if (!document.getElementById('dash-dt-from')?.value) { setUIRange('dash', 'month'); } renderDashboard(); renderLB(); }
-  if (page === 'assignments') { populateAsnSels(); renderAssignments(); }
-  if (page === 'allentries') { populateTechFilter(); if (!document.getElementById('ae-dt-from')?.value) applyAEPreset('today'); else renderAllEntries(); }
-  if (page === 'importproduction') renderImportProduction();
-  if (page === 'reports') { if (!document.getElementById('rpt-dt-from')?.value) setUIRange('rpt', 'month'); renderReports(); }
-  if (page === 'ratios') renderRatios();
-  if (page === 'taskgroups') { if (!document.getElementById('tc-dt-from')?.value) applyTCPreset('today'); else renderTG(); }
-  if (page === 'techs') renderTechs();
-  if (page === 'parts') renderParts();
-  if (page === 'leaders') renderLeaders();
-  if (page === 'controllers') renderControllers();
-  if (page === 'managers') renderManagers();
-  if (page === 'departments') renderDeptList();
-  if (page === 'permissions') renderPermissionsPage();
-  if (page === 'controllerentry') { populateLeaderEntryTechs(); renderLeaderEntry(); }
-  if (page === 'pwmgmt') renderPwMgmt();
-  if (page === 'system') renderSystem();
-  if (page === 'shopperformance') renderShopPerformance();
-  if (page === 'shopreport') { if (!document.getElementById('sr-dt-from')?.value) applySRPreset('month'); else renderShopReport(); }
-  applyPermVisibility();
-};
+function scColorForAttainment(pct) { return pct >= 90 ? 'sc-bar-good' : pct >= 70 ? 'sc-bar-warn' : 'sc-bar-bad'; }
+function scBadgeForScore(score) { return score >= 80 ? { cls: 'sc-badge-good', label: 'Good' } : score >= 60 ? { cls: 'sc-badge-warn', label: 'Needs Attention' } : { cls: 'sc-badge-bad', label: 'Critical' }; }
 
-// ════════════════════════════════════════════════
-//  DEV: PASSWORD MANAGEMENT
-// ════════════════════════════════════════════════
-function fillRpUsers() {
-  const t = document.getElementById('rp-type')?.value; const sel = document.getElementById('rp-user'); if (!sel) return;
-  const list = t === 'tech' ? techs : t === 'lead' ? leaders : t === 'mgr' ? managers : controllers;
-  sel.innerHTML = list.map(u => `<option value="${u.id}">${u.name} (${u.id})</option>`).join('');
+// Computes a 0-100 composite score per department from four factors:
+//  • Attainment (output vs target, capped at 100)
+//  • Output consistency (how closely output tracked target, either direction)
+//  • Avg TAT (relative — lowest TAT among the compared departments scores highest)
+//  • Inventory risk (relative — lowest inventory among the compared departments scores highest)
+// Each factor is weighted equally. This is a simple, transparent heuristic — not a
+// certified KPI formula — meant to give a fast at-a-glance read on department health.
+function computeShopComparisonScores(depts) {
+  const tats = depts.map(d => parseFloat(d.avgTat) || 0);
+  const invs = depts.map(d => Number(d.inv) || 0);
+  const minTat = Math.min(...tats), maxTat = Math.max(...tats);
+  const minInv = Math.min(...invs), maxInv = Math.max(...invs);
+  return depts.map(d => {
+    const attainment = Number(d.attainment) || 0;
+    const attainmentScore = Math.max(0, Math.min(100, attainment));
+    const outputConsistencyScore = Math.max(0, 100 - Math.min(100, Math.abs(100 - attainment)));
+    const tat = parseFloat(d.avgTat) || 0;
+    const tatScore = maxTat > minTat ? Math.max(0, 100 - ((tat - minTat) / (maxTat - minTat)) * 100) : 100;
+    const inv = Number(d.inv) || 0;
+    const invScore = maxInv > minInv ? Math.max(0, 100 - ((inv - minInv) / (maxInv - minInv)) * 100) : 100;
+    const overall = Math.round((attainmentScore + outputConsistencyScore + tatScore + invScore) / 4);
+    return { ...d, scAttainmentScore: Math.round(attainmentScore), scOutputScore: Math.round(outputConsistencyScore), scTatScore: Math.round(tatScore), scInvScore: Math.round(invScore), scOverall: overall };
+  });
 }
-window.fillRpUsers = fillRpUsers;
-window.doResetPw = async function () {
-  const t = document.getElementById('rp-type')?.value, uid = document.getElementById('rp-user')?.value, npw = sanitize(document.getElementById('rp-new')?.value);
-  if (!uid || !npw) { toast('Select user and enter new password', 'error'); return; }
-  const table = t === 'tech' ? 'technicians' : t === 'lead' ? 'leaders' : t === 'mgr' ? 'managers' : 'controllers';
-  const list = t === 'tech' ? techs : t === 'lead' ? leaders : t === 'mgr' ? managers : controllers;
-  const idx = list.findIndex(x => x.id === uid);
-  if (idx > -1) { list[idx].password = npw; await DB.upsert(table, list[idx]); toast('Password reset for ' + list[idx].name); }
-  sv('rp-new', '');
-};
-window.changeDevPw = async function () {
-  const npw = sanitize(document.getElementById('dev-new-pw')?.value);
-  if (!npw || npw.length < 4) { toast('Enter a valid password (min 4 chars)', 'error'); return; }
-  settings.passwords = { ...settings.passwords, dev: npw };
-  await persistSettings(); sv('dev-new-pw', ''); toast('Developer password updated');
-};
-function renderPwMgmt() {
-  fillRpUsers();
-  const el = document.getElementById('pw-all-list'); if (!el) return;
-  const allUsers = [...techs.map(t => ({ ...t, role: 'Technician' })), ...leaders.map(l => ({ ...l, role: 'Team Leader' })), ...controllers.map(c => ({ ...c, role: 'Production Controller' })), ...managers.map(m => ({ ...m, role: 'Manager' })), { id: 'DEV001', name: 'Developer Admin', role: 'Developer', status: 'active' }];
-  el.innerHTML = allUsers.map(u => `<div class="pw-reset-user">
-    <div style="display:flex;align-items:center;gap:9px;">
-      <div style="width:28px;height:28px;border-radius:50%;overflow:hidden;">${u.role !== 'Developer' ? avatarHtml(u.id, u.name, 28) : '<div class="av-i" style="width:28px;height:28px;font-size:10px;background:#8b5cf6;color:#fff;">DA</div>'}</div>
-      <div><div style="font-size:13px;font-weight:600;">${sanitize(u.name)}</div><div style="font-size:11px;color:var(--tx3);">${u.id} · ${u.role}</div></div></div>
-    <span class="bdg ${u.status === 'active' ? 'bgr' : 'bgray'}">${u.status || 'active'}</span></div>`).join('');
-}
-window.renderPwMgmt = renderPwMgmt;
-window.changeMyPw = async function () {
-  const old = document.getElementById('pwd-old')?.value, nw = document.getElementById('pwd-new')?.value, con = document.getElementById('pwd-con')?.value;
-  if (!old || !nw) { toast('Fill all fields', 'error'); return; }
-  if (nw !== con) { toast('Passwords do not match', 'error'); return; }
-  if (nw.length < 4) { toast('Min 4 characters', 'error'); return; }
-  try {
-    if (CR === 'tech') { const idx = techs.findIndex(t => t.id === CU.id); if (techs[idx]?.password !== old) { toast('Wrong current password', 'error'); return; } techs[idx].password = nw; await DB.upsert('technicians', techs[idx]); }
-    else if (CR === 'lead') { const idx = leaders.findIndex(l => l.id === CU.id); if (leaders[idx]?.password !== old) { toast('Wrong password', 'error'); return; } leaders[idx].password = nw; await DB.upsert('leaders', leaders[idx]); }
-    else if (CR === 'ctrl') { const idx = controllers.findIndex(c => c.id === CU.id); if (controllers[idx]?.password !== old) { toast('Wrong password', 'error'); return; } controllers[idx].password = nw; await DB.upsert('controllers', controllers[idx]); }
-    else if (CR === 'mgr') { const idx = managers.findIndex(m => m.id === CU.id); if (managers[idx]?.password !== old) { toast('Wrong password', 'error'); return; } managers[idx].password = nw; await DB.upsert('managers', managers[idx]); }
-    else if (CR === 'dev') { if ((settings.passwords?.dev || 'dev123') !== old) { toast('Wrong password', 'error'); return; } settings.passwords = { ...settings.passwords, dev: nw }; await persistSettings(); }
-    closeModal('m-password'); ['pwd-old', 'pwd-new', 'pwd-con'].forEach(id => sv(id, '')); toast('Password changed');
-  } catch (err) { toast('Change failed: ' + err.message, 'error'); }
-};
-function openForgot() { openModal('m-forgot'); }
-window.openForgot = openForgot;
-window.useRecoveryCode = async function () {
-  const code = document.getElementById('rc-code')?.value.trim(), npw = document.getElementById('rc-newpw')?.value;
-  if (code !== DEV_RECOVERY_CODE) { toast('Invalid recovery code', 'error'); return; }
-  if (!npw || npw.length < 4) { toast('Enter new password (min 4 chars)', 'error'); return; }
-  settings.passwords = { ...settings.passwords, dev: npw }; await persistSettings();
-  sv('rc-code', ''); sv('rc-newpw', ''); closeModal('m-forgot');
-  toast('Developer password reset successfully. You may now log in.');
-};
-window.saveDefPwds = async function () {
-  const tp = sanitize(document.getElementById('def-tech-pwd')?.value), lp = sanitize(document.getElementById('def-lead-pwd')?.value);
-  if (tp) settings.passwords = { ...settings.passwords, tech: tp };
-  if (lp) settings.passwords = { ...settings.passwords, lead: lp };
-  await persistSettings(); closeModal('m-globalpwd'); toast('Default passwords updated');
-};
-window.openMonthTgtModal = function () {
-  const sel = document.getElementById('tgt-sel'); if (!sel) return;
-  sel.innerHTML = '<option value="">Select</option>' + techs.map(t => `<option value="${t.id}">${t.name} (${t.monthlyTarget || 160}h)</option>`).join('');
-  sv('tgt-val', ''); openModal('m-monthtgt');
-};
-window.saveMonthTgt = async function () {
-  const tid = document.getElementById('tgt-sel')?.value, val = parseFloat(document.getElementById('tgt-val')?.value);
-  if (!tid || !val) { toast('Select tech and enter value', 'error'); return; }
-  const idx = techs.findIndex(t => t.id === tid);
-  if (idx > -1) { techs[idx].monthlyTarget = val; await DB.upsert('technicians', techs[idx]); }
-  closeModal('m-monthtgt'); toast('Target updated');
-  if (CR === 'lead' || CR === 'dev') renderDashboard(); else renderTechs();
-};
-
-// ════════════════════════════════════════════════
-//  SYSTEM / BACKUP / FACTORY RESET
-// ════════════════════════════════════════════════
-function renderSystem() {
-  sv('sys-def', settings.defaultMonthlyTarget || 160);
-  const el = document.getElementById('sys-info');
-  if (el) el.innerHTML = `<div class="srow"><div><div class="srl-t">Total Entries</div></div><span class="bdg bblu">${entries.length}</span></div>
-    <div class="srow"><div><div class="srl-t">Technicians</div></div><span class="bdg bgr">${techs.length}</span></div>
-    <div class="srow"><div><div class="srl-t">Parts</div></div><span class="bdg bamb">${parts.length}</span></div>
-    <div class="srow"><div><div class="srl-t">Departments</div></div><span class="bdg bcyn">${departments.length}</span></div>
-    <div class="srow"><div><div class="srl-t">Assignments</div></div><span class="bdg bcyn">${assignments.length}</span></div>
-    <div class="srow"><div><div class="srl-t">Data source</div></div><span class="bdg bgr">Supabase</span></div>`;
-  renderLB();
-}
-window.renderSystem = renderSystem;
-window.saveDefTgt = async function () { settings.defaultMonthlyTarget = parseInt(document.getElementById('sys-def')?.value) || 160; await persistSettings(); toast('Saved'); };
-window.exportBackup = function () {
-  dlFile(JSON.stringify({ techs, parts, leaders, controllers, managers, departments, settings, entries, assignments, shopPerf, profilePics, exportedAt: new Date().toISOString() }, null, 2), 'protrack_backup_' + todayEAT() + '.json', 'application/json');
-  toast('Backup exported');
-};
-window.importBackup = function (input) {
-  const f = input.files[0]; if (!f) return;
-  const r = new FileReader();
-  r.onload = async e => {
-    try {
-      const d = JSON.parse(e.target.result);
-      if (d.techs) for (const t of d.techs) await DB.upsert('technicians', t);
-      if (d.parts) for (const p of d.parts) await DB.upsert('parts', p);
-      if (d.leaders) for (const l of d.leaders) await DB.upsert('leaders', l);
-      if (d.controllers) for (const c of d.controllers) await DB.upsert('controllers', c);
-      if (d.managers) for (const m of d.managers) await DB.upsert('managers', m);
-      if (d.departments) for (const dep of d.departments) await DB.upsert('departments', dep);
-      if (d.entries) for (const en of d.entries) await DB.upsert('entries', en);
-      if (d.assignments) for (const a of d.assignments) await DB.upsert('assignments', a);
-      if (d.shopPerf) for (const s of d.shopPerf) await DB.upsert('shop_performance', s);
-      if (d.settings) { settings = { ...settings, ...d.settings }; await persistSettings(); }
-      toast('Restored. Reloading...'); setTimeout(() => location.reload(), 1000);
-    } catch (err) { toast('Invalid backup', 'error'); }
-  };
-  r.readAsText(f);
-};
-window.factoryReset = async function () {
-  if (!confirm('⚠️ FULL RESET? This deletes all technicians, parts, entries and settings.')) return;
-  try {
-    for (const table of TABLES) { const rows = await DB.list(table); for (const row of rows) await DB.remove(table, row.id); }
-    toast('Reset complete. Reloading...'); setTimeout(() => location.reload(), 1000);
-  } catch (err) { toast('Reset failed: ' + err.message, 'error'); }
-};
-
-// ════════════════════════════════════════════════
-//  VERSION HISTORY
-// ════════════════════════════════════════════════
-function toggleVer() { document.getElementById('ver-history')?.classList.toggle('open'); }
-window.toggleVer = toggleVer;
-
-// ════════════════════════════════════════════════
-//  LOGIN
-// ════════════════════════════════════════════════
-
-async function loadAllData() {
-  const [ts, ls, cs, ms, ps, es, as_, ds, sps] = await Promise.all([
-    DB.list('technicians'), DB.list('leaders'), DB.list('controllers'), DB.list('managers'),
-    DB.list('parts'), DB.list('entries'), DB.list('assignments'), DB.list('departments'), DB.list('shop_performance')
-  ]);
-  techs = ts; leaders = ls; controllers = cs; managers = ms; parts = ps; entries = es; assignments = as_; shopPerf = sps;
-  departments = ds.length ? ds : DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
-  if (!ds.length) { for (const d of departments) await DB.upsert('departments', d); }
-  const savedSettings = await DB.getSettings();
-  if (savedSettings) settings = savedSettings;
-  else { settings.permissions = defaultPermissionsV2(); await persistSettings(); }
-}
-
-async function doLogin() {
-  if (loginAttempts >= 5) {
-    document.getElementById('login-attempts').style.display = 'block';
-    document.getElementById('login-attempts').textContent = 'Too many attempts. Please wait 30 seconds and try again.';
-    toast('Too many login attempts. Please wait 30 seconds and try again.', 'error');
-    setTimeout(() => { loginAttempts = 0; document.getElementById('login-attempts').style.display = 'none'; }, 30000);
+function renderShopComparisonDashboard() {
+  const rr = getUIRange('sr');
+  const rows = getShopReportRows();
+  const depts = summarizeShopReportByDept(rows);
+  const content = document.getElementById('sc-content');
+  const sub = document.getElementById('sc-range-sub');
+  if (sub) sub.textContent = `${rr.start || '—'} → ${rr.end || '—'} · ${depts.length} department${depts.length === 1 ? '' : 's'} in scope`;
+  if (!content) return;
+  if (!depts.length) {
+    content.innerHTML = '<div class="sc-empty">No shop performance data available for the selected range and your department access.</div>';
     return;
   }
-  const id = sanitize(document.getElementById('li-id')?.value).toUpperCase();
-  const pwd = document.getElementById('li-pw')?.value?.trim();
-  if (!id || !pwd) return;
-  const btn = document.getElementById('sign-in-btn'), lbtxt = document.getElementById('lbtn-txt');
-  if (btn) { btn.classList.add('loading'); btn.disabled = true; }
-  if (lbtxt) lbtxt.textContent = 'Signing in…';
-  showLoading('Loading ProTrack…');
-  try { await loadAllData(); } catch (e) { console.warn('Load failed:', e); hideLoading(); if (btn) { btn.classList.remove('loading'); btn.disabled = false; } toast('Could not reach the database. Check your connection.', 'error'); return; }
-  syncAllDeptDropdowns();
-  let user = null, role = '';
-  user = techs.find(t => t.id === id && t.password === pwd); if (user) role = 'tech';
-  if (!user) { user = leaders.find(l => l.id === id && l.password === pwd); if (user) role = 'lead'; }
-  if (!user) { user = controllers.find(c => c.id === id && c.password === pwd); if (user) role = 'ctrl'; }
-  if (!user) { user = managers.find(m => m.id === id && m.password === pwd); if (user) role = 'mgr'; }
-  if (!user) {
-    const devPassword = settings.passwords?.dev || 'dev123';
-    const normalizedDevId = id.replace(/\s+/g, '');
-    if (['DEV001', 'ADMIN', 'DEVELOPER', 'DEVELOPERADMIN'].includes(normalizedDevId) && pwd === devPassword) {
-      user = { id: 'DEV001', name: 'Developer Admin' };
-      role = 'dev';
-    }
-  }
-  if (btn) { btn.classList.remove('loading'); btn.disabled = false; }
-  if (lbtxt) lbtxt.textContent = 'Sign In →';
-  if (!user) {
-    loginAttempts++;
-    const remaining = 5 - loginAttempts;
-    document.getElementById('login-attempts').style.display = 'block';
-    document.getElementById('login-attempts').textContent = loginAttempts >= 5 ? 'Account locked for 30s. Please try again later.' : `Invalid credentials. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`;
-    hideLoading(); toast('Invalid credentials', 'error'); return;
-  }
-  loginAttempts = 0; document.getElementById('login-attempts').style.display = 'none';
-  CU = user; CR = role;
-  try { sessionStorage.setItem('pt-session', JSON.stringify({ id: user.id, role })); } catch (e) {}
-  const avEl = document.getElementById('sb-av');
-  if (avEl) { avEl.innerHTML = avatarHtml(user.id, user.name, 32); avEl.style.background = 'transparent'; }
-  stxt('sb-un', user.name); stxt('sb-ur', ROLE_TITLES[role] || role.toUpperCase());
-  buildNav();
-  document.getElementById('login').classList.remove('on');
-  document.getElementById('app').classList.add('on');
-  hideLoading();
-  const allowedPages = pagesForCurrentRole();
-  const home = allowedPages[0] || 'entry';
-  navTo(home);
-  toast('Welcome, ' + user.name.split(' ')[0] + '!');
-}
-window.doLogin = doLogin;
-window.logout = function () {
-  CU = null; CR = null;
-  try { sessionStorage.removeItem('pt-session'); } catch (e) {}
-  document.getElementById('app').classList.remove('on');
-  document.getElementById('login').classList.add('on');
-  try {
-    const _li = document.getElementById('li-id'); const _lp = document.getElementById('li-pw');
-    if (_lp) _lp.value = '';
-    if (_li) _li.value = '';
-  } catch (e) {}
-};
+  const totalOutput = depts.reduce((s, d) => s + (Number(d.output) || 0), 0);
+  const totalTarget = depts.reduce((s, d) => s + (Number(d.target) || 0), 0);
+  const overallAttainment = totalTarget ? Math.round((totalOutput / totalTarget) * 100) : 0;
+  const scored = computeShopComparisonScores(depts);
+  const generatedAt = fmtEAT(new Date().toISOString(), 'datetime');
 
-// ════════════════════════════════════════════════
-//  INIT
-// ════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-  initSupabase();
-  document.getElementById('sign-in-btn')?.addEventListener('click', doLogin);
-  ['li-id', 'li-pw'].forEach(id => document.getElementById(id)?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doLogin(); } }));
-  sv('asn-date', todayEAT());
-  restoreProductionImportState();
-  // Ensure the application does not programmatically retain the login password field value.
-  try { const __lp = document.getElementById('li-pw'); if (__lp) __lp.value = ''; } catch (e) {}
-  ['e-time', 'le-time'].forEach(id => { const el = document.getElementById(id); if (el && !el.value) el.value = todayEAT(); });
-  setTimeout(hideLoading, 800);
-  document.getElementById('login').classList.add('on');
-  const mf = document.getElementById('ms-month-filter'); if (mf && !mf.value) mf.value = todayEAT().slice(0, 7);
-  stxt('ver-current', 'v' + APP_VERSION);
-  if (!sb) {
-    // No Supabase configured on this page
-    const hint = document.getElementById('login-attempts');
-    if (hint) { hint.style.display = 'block'; hint.textContent = 'No database connected. Please check your Supabase configuration.'; }
-  }
-});
+  const header = `<div class="sc-header">
+    <div class="sc-header-title">🏭 Shop Comparison — All Departments</div>
+    <div class="sc-header-sub">Range: ${escapeHtml(rr.start || '—')} → ${escapeHtml(rr.end || '—')}</div>
+    <div class="sc-header-stats">
+      <div class="sc-header-stat"><span class="lbl">Total Output</span><span class="val">${totalOutput}</span></div>
+      <div class="sc-header-stat"><span class="lbl">Overall Attainment</span><span class="val" style="color:${overallAttainment >= 90 ? 'var(--green)' : overallAttainment >= 70 ? 'var(--amber)' : 'var(--rose)'};">${overallAttainment}%</span></div>
+      <div class="sc-header-stat"><span class="lbl">Departments</span><span class="val">${depts.length}</span></div>
+      <div class="sc-header-stat"><span class="lbl">Generated</span><span class="val" style="font-size:12px;font-weight:600;">${escapeHtml(generatedAt)}</span></div>
+    </div>
+  </div>`;
 
-</script>
-</body>
-</html>
+  // A. Department Attainment Chart — horizontal bars, green/amber/red thresholds.
+  const attainmentRows = depts.slice().sort((a, b) => b.attainment - a.attainment).map(d => {
+    const pct = Math.max(0, Math.min(100, d.attainment));
+    return `<div class="sc-bar-row">
+      <div class="sc-bar-label" title="${escapeHtml(deptLabel(d.dept))}">${escapeHtml(deptLabel(d.dept))}</div>
+      <div class="sc-bar-track"><div class="sc-bar-fill ${scColorForAttainment(d.attainment)}" style="width:${pct}%;"></div></div>
+      <div class="sc-bar-value">${d.attainment}%</div>
+    </div>`;
+  }).join('');
+  const attainmentSection = `<div class="sc-section"><div class="sc-section-title">📈 Department Attainment</div>${attainmentRows}</div>`;
 
+  // B. Output vs Target Chart — grouped bars per department.
+  const maxOutTgt = Math.max(1, ...depts.map(d => Math.max(d.output, d.target)));
+  const outputRows = depts.map(d => `<div class="sc-grouped-row">
+      <div class="sc-bar-label" title="${escapeHtml(deptLabel(d.dept))}">${escapeHtml(deptLabel(d.dept))}</div>
+      <div class="sc-grouped-bars">
+        <div class="sc-grouped-bar-line"><span class="tag" style="color:var(--tx3);">Target</span><div class="sc-grouped-track"><div class="sc-grouped-fill" style="width:${(d.target / maxOutTgt) * 100}%;background:var(--tx4);"></div></div><span class="sc-grouped-num">${d.target}</span></div>
+        <div class="sc-grouped-bar-line"><span class="tag" style="color:var(--blue);">Actual</span><div class="sc-grouped-track"><div class="sc-grouped-fill" style="width:${(d.output / maxOutTgt) * 100}%;background:var(--blue);"></div></div><span class="sc-grouped-num">${d.output}</span></div>
+      </div>
+    </div>`).join('');
+  const outputSection = `<div class="sc-section"><div class="sc-section-title">📊 Output vs Target</div>${outputRows}</div>`;
+
+  // C. Average TAT Ranking — lower is better; very high TAT highl
