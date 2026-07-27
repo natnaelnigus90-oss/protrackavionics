@@ -1374,8 +1374,6 @@ input[type="date"] {
 <input autocapitalize="none" autocomplete="username" class="fi" id="li-id" value=""/>
 <label class="fl" for="li-pw">Password</label>
 <input autocomplete="current-password" class="fi" id="li-pw" type="password" value=""/>
-<span class="forgot-link" onclick="openForgot()">Forgot password?</span>
-<div class="login-hint">Developer access also works with ID <strong>DEV001</strong> or <strong>ADMIN</strong>.</div>
 <button class="lbtn" id="sign-in-btn" onclick="doLogin()">
 <span class="lbtn-spinner"></span>
 <span id="lbtn-txt">Sign In →</span>
@@ -1703,6 +1701,8 @@ input[type="date"] {
 <div class="prod-import-actions">
 <button class="btn bo bsm" onclick="clearProductionImportPreview()">Clear Preview</button>
 <button class="btn bo bsm" onclick="validateProductionImportPreview()">Validate all</button>
+<button class="btn bo bsm" onclick="applyBulkDuplicateResolution('accept')">Accept Duplicates</button>
+<button class="btn bo bsm" onclick="applyBulkDuplicateResolution('remove')">Remove Duplicates</button>
 <button class="btn bp bsm" data-action="productionImport.commit" onclick="commitProductionImport()">Confirm Import</button>
 </div>
 </div>
@@ -2220,6 +2220,22 @@ input[type="date"] {
   <div class="kpi-row" id="sr-kpi-row" style="display:none"></div>
 <div class="sp-range-summary" id="sp-range-summary"></div>
 <div class="sp-weekly-grid" id="sp-weekly-grid" style="--week-count: 0;"></div>
+<div class="card" style="margin-top:14px;">
+<div class="ch"><span class="ct">📝 Manager Comment</span></div>
+<div class="cb">
+<div class="sr-mgr-add">
+<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;">
+<div class="fgroup" style="flex:1;min-width:180px;"><label class="flabel">Department</label><select class="fselect" id="sr-comment-dept"></select></div>
+<div class="fgroup" style="min-width:220px;"><label class="flabel">Reporting Range</label><div class="mono" id="sr-comment-range" style="padding:8px 10px;border:1px solid var(--bdr);border-radius:8px;background:var(--inp-bg);color:var(--tx2);">—</div></div>
+</div>
+<textarea class="finput" id="sr-comment-input" rows="4" placeholder="Add manager comments for this department and reporting range..."></textarea>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px;">
+<div id="sr-comment-meta" style="font-size:11px;color:var(--tx3);">—</div>
+<button class="btn bp bsm" onclick="saveShopReportComment()">Save Comment</button>
+</div>
+</div>
+</div>
+</div>
 <div id="sr-table-wrapper" class="tw" style="margin-top:12px;display:none"><table><thead><tr><th>Department</th><th>Output Target</th><th>Actual Output</th><th>Attainment</th><th>Avg TAT</th><th>Total Inventory</th><th>WFP</th><th>Weeks Logged</th><th>Action</th></tr></thead>
 <tbody id="sr-body"></tbody></table></div>
 </div>
@@ -2500,7 +2516,7 @@ let techs = [], parts = [], leaders = [], controllers = [], managers = [], entri
 let departments = [];
 let shopPerf = []; // {id, dept, weekStart, sdt:[5], scrap:[5], comment, updatedBy, updatedAt}
 let appUsers = [];
-let settings = { defaultMonthlyTarget: 160, passwords: {}, permissions: null };
+let settings = { defaultMonthlyTarget: 160, passwords: {}, permissions: null, shopReportComments: {} };
 let profilePics = {};
 let selJobRole = 'Technician', selJobRoleIdx = 0;
 let selectedPartsByPrefix = { e: null, le: null };
@@ -4607,7 +4623,7 @@ function openEmployeeSelectionModal(rowIndex) {
     const title = dialog.querySelector('.mttl');
     const subtitle = dialog.querySelector('.msub');
     if (title) title.textContent = 'Multiple employees found';
-    if (subtitle) subtitle.textContent = 'Resolve the employee IDs for this row before import.';
+    if (subtitle) subtitle.textContent = `Resolve the employee IDs for row ${target.row || rowIndex}. Task: ${escapeHtml(target.entry?.taskCode || '—')} · Role: ${escapeHtml(target.entry?.jobRole || '—')}`;
     if (content) {
       content.innerHTML = parsedEmployees.map((emp) => {
         const isValid = !!emp.valid;
@@ -4620,6 +4636,7 @@ function openEmployeeSelectionModal(rowIndex) {
                 <div style="font-weight:600;color:${badgeColor};">${escapeHtml(emp.name || emp.rawId)}</div>
                 <div style="font-size:12px;color:var(--tx2);font-family:monospace;">${escapeHtml(emp.rawId)}</div>
                 <div style="font-size:11px;color:${badgeColor};">${isValid ? '✓ Found in system' : '✗ Not found'}</div>
+                <div style="font-size:11px;color:var(--tx3);margin-top:4px;">Task: ${escapeHtml(target.entry?.taskCode || '—')} · Role: ${escapeHtml(target.entry?.jobRole || '—')}</div>
               </div>
               <div style="display:flex;flex-wrap:wrap;gap:6px;">
                 ${isValid ? `<button class="btn bp bsm" onclick="selectEmployeeForImport('${escapeHtml(emp.rawId)}')" style="padding:6px 10px;">Select one employee</button>` : ''}
@@ -4874,6 +4891,56 @@ function isDuplicateImportEntry(candidate, group = []) {
   };
   return entries.some(matches) || group.some(item => item && item !== candidate && matches(item.entry || {}));
 }
+function getDuplicatePreviewGroups(preview = []) {
+  const items = Array.isArray(preview) ? preview.filter(Boolean) : [];
+  const groups = [];
+  const used = new Set();
+  items.forEach((item, index) => {
+    if (used.has(index)) return;
+    const group = [item];
+    used.add(index);
+    items.forEach((candidate, candidateIndex) => {
+      if (candidateIndex === index || used.has(candidateIndex)) return;
+      if (isDuplicateImportEntry(item.entry || {}, [candidate])) {
+        group.push(candidate);
+        used.add(candidateIndex);
+      }
+    });
+    if (group.length > 1) groups.push(group);
+  });
+  return groups;
+}
+function applyBulkDuplicateResolution(action = 'remove') {
+  const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const groups = getDuplicatePreviewGroups(preview);
+  if (!groups.length) { toast('No duplicate rows detected', 'info'); return; }
+  groups.forEach(group => {
+    const members = group.filter(Boolean);
+    if (!members.length) return;
+    if (action === 'accept') {
+      members.forEach(item => {
+        item.status = 'Ready';
+        item.reason = 'Duplicate accepted in bulk';
+        item.canImport = true;
+        item.severity = 'ok';
+        item.isDuplicate = false;
+      });
+      return;
+    }
+    members.forEach(item => {
+      item.status = 'Duplicate removed';
+      item.reason = 'Duplicate removed in bulk';
+      item.canImport = false;
+      item.severity = 'warning';
+      item.isDuplicate = true;
+    });
+  });
+  productionImportState.preview = preview;
+  saveProductionImportState();
+  renderImportProduction();
+  refreshProductionImportSummary(preview);
+}
+window.applyBulkDuplicateResolution = applyBulkDuplicateResolution;
 function resolveProductionImportDuplicate(rowIndex, action) {
   const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
   const target = getPreviewItemByRow(rowIndex);
@@ -4884,7 +4951,7 @@ function resolveProductionImportDuplicate(rowIndex, action) {
   const keep = action === 'keep-last' ? members[members.length - 1] : members[0];
   members.forEach(item => {
     if (item === keep) {
-      item.status = 'Ready to import';
+      item.status = 'Ready';
       item.reason = 'Duplicate resolved';
       item.canImport = true;
       item.severity = 'ok';
@@ -4898,7 +4965,9 @@ function resolveProductionImportDuplicate(rowIndex, action) {
     item.isDuplicate = true;
   });
   productionImportState.preview = preview;
-  validateProductionImportPreview();
+  saveProductionImportState();
+  renderImportProduction();
+  refreshProductionImportSummary(preview);
 }
 window.resolveProductionImportDuplicate = resolveProductionImportDuplicate;
 function openAddTechForImport(rowIndex) {
@@ -4992,6 +5061,27 @@ function setProdImportTab(tab) {
   renderImportProduction();
 }
 window.setProdImportTab = setProdImportTab;
+function refreshProductionImportSummary(items = []) {
+  const preview = Array.isArray(items) && items.length ? items : (Array.isArray(productionImportState.preview) ? productionImportState.preview : []);
+  const summary = document.getElementById('prod-import-summary-panel');
+  if (!summary) return;
+  const next = preview.filter(Boolean);
+  const blocked = next.filter(r => !r.canImport && !r.isEmptyRow).length;
+  const ready = next.filter(r => r.canImport).length;
+  const totals = {
+    total: next.length,
+    ready,
+    errors: next.filter(r => r.severity === 'error').length,
+    warnings: next.filter(r => r.severity === 'warning').length,
+    duplicates: next.filter(r => r.isDuplicate).length,
+    missingParts: next.filter(r => (r.reason || '').includes('Missing part')).length,
+    missingEmployees: next.filter(r => (r.reason || '').includes('Missing employee') || (r.reason || '').includes('Needs selection') || (r.reason || '').includes('Partial match')).length
+  };
+  summary.innerHTML = `<strong>Import summary:</strong> Total rows ${totals.total} • Ready ${totals.ready} • Errors ${totals.errors} • Warnings ${totals.warnings} • Duplicates ${totals.duplicates} • Missing parts ${totals.missingParts} • Missing employees ${totals.missingEmployees}`;
+  if (blocked) setProdImportStep('review');
+  else if (ready) setProdImportStep('confirm');
+  else setProdImportStep('validated');
+}
 function validateProductionImportPreview() {
   const items = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
   const next = items.map(item => ({ ...item, entry: { ...(item.entry || {}) }, missingRequired: [] }));
@@ -5652,6 +5742,56 @@ function summarizeShopReportByDept(rows) {
 function renderShopReportComment(comment, author, at, emptyText = 'No manager comments') {
   return `<div class="sr-comment-box"><div class="sr-comment-label">Manager comment</div><div style="font-size:13px;color:${comment ? 'var(--tx)' : 'var(--tx3)'};">${escapeHtml(comment || emptyText)}</div>${comment ? `<div style="font-size:11px;color:var(--tx3);margin-top:6px;">${author ? `By ${escapeHtml(author)} · ` : ''}${escapeHtml(at || '')}</div>` : ''}</div>`;
 }
+function getShopReportCommentKey(deptId, fromDate, toDate) {
+  return `${deptId || ''}|${String(fromDate || '').slice(0, 10)}|${String(toDate || '').slice(0, 10)}`;
+}
+function getShopReportCommentByRange(deptId, fromDate, toDate) {
+  const key = getShopReportCommentKey(deptId, fromDate, toDate);
+  const store = settings?.shopReportComments || {};
+  return store[key] || null;
+}
+function renderShopReportCommentEditor() {
+  const deptEl = document.getElementById('sr-comment-dept');
+  const rangeEl = document.getElementById('sr-comment-range');
+  const textarea = document.getElementById('sr-comment-input');
+  const metaEl = document.getElementById('sr-comment-meta');
+  if (!deptEl || !textarea) return;
+  const opts = shopDeptOptionsForUser();
+  const currentValue = deptEl.value || opts[0]?.id || '';
+  deptEl.innerHTML = opts.length ? opts.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('') : '<option value="">No department available</option>';
+  if (opts.some(o => o.id === currentValue)) deptEl.value = currentValue;
+  else if (opts[0]) deptEl.value = opts[0].id;
+  const dept = deptEl.value;
+  const from = document.getElementById('sr-dt-from')?.value || '';
+  const to = document.getElementById('sr-dt-to')?.value || '';
+  if (rangeEl) rangeEl.textContent = `${from || '—'} → ${to || '—'}`;
+  const entry = getShopReportCommentByRange(dept, from, to);
+  textarea.value = entry?.comment || '';
+  textarea.disabled = !canI('shopreport', 'comment') && CR !== 'dev';
+  const saveBtn = document.querySelector('#pg-shopreport .btn.bp.bsm[onclick="saveShopReportComment()"]');
+  if (saveBtn) saveBtn.style.display = (canI('shopreport', 'comment') || CR === 'dev') ? '' : 'none';
+  if (metaEl) {
+    metaEl.textContent = entry?.comment
+      ? `Last updated by ${escapeHtml(entry.author || 'Manager')} on ${escapeHtml(entry.updatedAt || '')}`
+      : 'No comment saved for this department and range yet.';
+  }
+}
+window.renderShopReportCommentEditor = renderShopReportCommentEditor;
+window.saveShopReportComment = async function() {
+  const deptEl = document.getElementById('sr-comment-dept');
+  const textarea = document.getElementById('sr-comment-input');
+  const from = document.getElementById('sr-dt-from')?.value || '';
+  const to = document.getElementById('sr-dt-to')?.value || '';
+  if (!deptEl || !textarea) return;
+  if (!canI('shopreport', 'comment') && CR !== 'dev') { toast('You do not have permission to save report comments', 'error'); return; }
+  const dept = deptEl.value;
+  const comment = sanitize(textarea.value);
+  const key = getShopReportCommentKey(dept, from, to);
+  settings.shopReportComments = { ...(settings?.shopReportComments || {}), [key]: { deptId: dept, rangeStart: from, rangeEnd: to, comment, author: CU?.name || 'Manager', updatedAt: todayEAT() } };
+  await persistSettings();
+  renderShopReportCommentEditor();
+  toast('Report comment saved');
+};
 function renderShopReport() {
   const rr = getUIRange('sr');
   const rows = getShopReportRows();
@@ -5694,6 +5834,7 @@ function renderShopReport() {
   }).join('') : '<tr><td colspan="9" class="empty">No shop performance data in this range</td></tr>';
   applyPermVisibility();
   if (summary) summary.innerHTML = `<span class="sp-pill">Range: ${escapeHtml(rr.start || '—')} → ${escapeHtml(rr.end || '—')}</span><span class="sp-pill">Departments: ${departments.length}</span><span class="sp-pill">Week submissions: ${rows.length}</span>`;
+  renderShopReportCommentEditor();
   if (grid) {
     if (!departments.length) {
       grid.innerHTML = '<div class="empty">No shop performance data to render</div>';
@@ -6064,8 +6205,8 @@ async function loadAllData() {
 async function doLogin() {
   if (loginAttempts >= 5) {
     document.getElementById('login-attempts').style.display = 'block';
-    document.getElementById('login-attempts').textContent = 'Too many attempts. Wait 30s or use "Forgot password?" for recovery.';
-    toast('Too many login attempts. Try again in 30 seconds.', 'error');
+    document.getElementById('login-attempts').textContent = 'Too many attempts. Please wait 30 seconds and try again.';
+    toast('Too many login attempts. Please wait 30 seconds and try again.', 'error');
     setTimeout(() => { loginAttempts = 0; document.getElementById('login-attempts').style.display = 'none'; }, 30000);
     return;
   }
@@ -6097,7 +6238,7 @@ async function doLogin() {
     loginAttempts++;
     const remaining = 5 - loginAttempts;
     document.getElementById('login-attempts').style.display = 'block';
-    document.getElementById('login-attempts').textContent = loginAttempts >= 5 ? 'Account locked for 30s. Use "Forgot password?" if needed.' : `Invalid credentials. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`;
+    document.getElementById('login-attempts').textContent = loginAttempts >= 5 ? 'Account locked for 30s. Please try again later.' : `Invalid credentials. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`;
     hideLoading(); toast('Invalid credentials', 'error'); return;
   }
   loginAttempts = 0; document.getElementById('login-attempts').style.display = 'none';
@@ -6110,7 +6251,8 @@ async function doLogin() {
   document.getElementById('login').classList.remove('on');
   document.getElementById('app').classList.add('on');
   hideLoading();
-  const home = { tech: 'entry', lead: 'dashboard', mgr: 'dashboard', ctrl: 'controllerentry', dev: 'dashboard' }[role] || 'entry';
+  const allowedPages = pagesForCurrentRole();
+  const home = allowedPages[0] || 'entry';
   navTo(home);
   toast('Welcome, ' + user.name.split(' ')[0] + '!');
 }
