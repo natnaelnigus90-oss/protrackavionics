@@ -9143,6 +9143,133 @@ previewProductionImport = async function (input) {
 window.previewProductionImport = previewProductionImport;
 window.handleProdImportUpload = previewProductionImport;
 
+
+// ════════════════════════════════════════════════
+//  IMPORT PRODUCTION CONFIRM READY-ONLY PATCH
+//  Confirm Import imports only Ready rows in the active department scope.
+//  Only rows that were successfully imported are removed from preview.
+//  Error/warning/skipped/non-ready rows remain until Clear Preview is clicked.
+// ════════════════════════════════════════════════
+async function commitProductionImport() {
+  if (!canI('importproduction', 'import')) { toast('Not allowed', 'error'); return; }
+  validateProductionImportPreview();
+
+  const fullPreview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const scopedPreview = getProdImportScopedPreviewRows(fullPreview);
+  if (!scopedPreview.length) { toast(`No preview rows available for ${getProdImportScopeLabel()}`, 'error'); return; }
+
+  const readyRows = getFilteredProductionImportPreviewRows('ready', scopedPreview).filter(item => isProdImportItemInActiveScope(item));
+  if (!readyRows.length) {
+    toast(`No Ready rows are available for ${getProdImportScopeLabel()}. Error, warning, skipped, and duplicate rows will stay until cleared manually.`, 'error');
+    return;
+  }
+
+  return runWithImportLoading(`Importing Ready rows for ${getProdImportScopeLabel()}...`, async () => {
+    try {
+      let created = 0, skipped = 0;
+      const skippedList = [];
+      const successfulRowIds = new Set();
+
+      for (const item of readyRows) {
+        resolveProductionImportDepartment(item);
+        const normalized = normalizeImportRecord(item);
+        normalized.entry.department = normalized.entry.department || item.department || '';
+        const rowKey = String(item.id || item.row);
+        const rowNo = item.row || '-';
+        let rowCreated = 0;
+        let rowFailed = false;
+
+        const stillReady = getFilteredProductionImportPreviewRows('ready', [normalized]).length > 0 && isProdImportItemInActiveScope(normalized);
+        if (!stillReady) {
+          skipped++;
+          rowFailed = true;
+          skippedList.push({ row: rowNo, reason: normalized.reason || 'Row is no longer Ready or is outside selected department scope' });
+          continue;
+        }
+
+        const selectedEmployees = Array.isArray(normalized.selectedEmployeeIds) && normalized.selectedEmployeeIds.length
+          ? normalized.selectedEmployeeIds
+          : (normalized.entry?.techId ? [{ rawId: normalized.entry.techId, techId: normalized.entry.techId, techName: normalized.entry.techName }] : []);
+
+        if (!selectedEmployees.length) {
+          skipped++;
+          rowFailed = true;
+          skippedList.push({ row: rowNo, reason: 'No employee selected for import' });
+          continue;
+        }
+
+        const baseEntry = { ...normalized.entry, importedSource: 'ComponentTATStatus', approvalStatus: 'pending', department: normalized.entry.department };
+        for (const employee of selectedEmployees) {
+          const techDept = getDepartmentFromTechnicianId(employee.techId || employee.rawId || '', employee.techName || '') || baseEntry.department;
+          const entryDept = techDept || baseEntry.department;
+          const scope = getProdImportActiveDepartmentScope();
+          if (!entryDept || !scope.includes(entryDept)) {
+            skipped++;
+            rowFailed = true;
+            skippedList.push({ row: rowNo, reason: 'Employee department is outside selected import scope' });
+            continue;
+          }
+
+          const entry = {
+            ...baseEntry,
+            department: entryDept,
+            techId: employee.techId || employee.rawId || '',
+            techName: employee.techName || employee.rawId || '',
+            taskCode: String(baseEntry.taskCode || '').trim().toUpperCase(),
+            pnum: String(baseEntry.pnum || '').trim(),
+            time: String(baseEntry.time || '').slice(0, 10)
+          };
+
+          if (!entry.techId || !entry.taskCode || !entry.pnum || !entry.time || !entry.department) {
+            skipped++;
+            rowFailed = true;
+            skippedList.push({ row: rowNo, reason: 'Missing required fields or department' });
+            continue;
+          }
+
+          if (normalized.importAction !== 'accepted' && isDuplicateImportEntry(entry, [])) {
+            skipped++;
+            rowFailed = true;
+            skippedList.push({ row: rowNo, reason: 'Duplicate blocked at final import protection' });
+            continue;
+          }
+
+          const saved = await DB.upsert('entries', entry);
+          entries.unshift(saved);
+          created++;
+          rowCreated++;
+        }
+
+        // Remove a preview row only when the whole Ready row was imported successfully.
+        // Partial failures stay visible so the user can review/fix/clear manually.
+        if (rowCreated > 0 && !rowFailed) successfulRowIds.add(rowKey);
+      }
+
+      if (successfulRowIds.size) {
+        productionImportState.preview = fullPreview.filter(item => !successfulRowIds.has(String(item.id || item.row)));
+        saveProductionImportState();
+      } else {
+        productionImportState.preview = fullPreview;
+        saveProductionImportState();
+      }
+
+      renderProdImportReport({ created, skipped, skippedList });
+      if (canManageEntriesUI()) renderAllEntries();
+      renderImportProduction();
+      refreshProductionImportSummary(productionImportState.preview);
+
+      const remain = getProdImportScopedPreviewRows(productionImportState.preview).length;
+      toast(`Imported ${created} entry${created === 1 ? '' : 'ies'} from Ready rows for ${getProdImportScopeLabel()}. ${successfulRowIds.size} preview row${successfulRowIds.size === 1 ? '' : 's'} cleared. ${remain} row${remain === 1 ? '' : 's'} remain until Clear Preview.`);
+    } catch (err) {
+      console.error(err);
+      toast('Production import failed: ' + (err?.message || err), 'error');
+    }
+  });
+}
+window.commitProductionImport = commitProductionImport;
+window.commitProdImportFromModal = commitProductionImport;
+window.commitProdImportResolved = commitProductionImport;
+
 </script>
 </body>
 </html>
