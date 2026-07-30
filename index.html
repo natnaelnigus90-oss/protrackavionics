@@ -8819,6 +8819,263 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (e) {}
 });
 
+
+// ════════════════════════════════════════════════
+//  IMPORT PRODUCTION PAGE SELECTED-DEPARTMENT SCOPE PATCH
+//  All Import Production buttons/functions operate only on the selected department, or the user's own department.
+// ════════════════════════════════════════════════
+const PROD_IMPORT_SELECTED_DEPT_KEY = 'protrack-prod-import-selected-department';
+function getProdImportAllowedDepartments() {
+  const scope = typeof getAllowedManagedDepartments === 'function' ? getAllowedManagedDepartments() : currentUserDeptScope();
+  if (CR === 'dev') return departments.map(d => d.id).filter(Boolean);
+  return (Array.isArray(scope) && scope.length ? scope : (CU?.department ? [CU.department] : [])).filter(Boolean);
+}
+function getProdImportSelectedDepartment() {
+  const allowed = getProdImportAllowedDepartments();
+  if (allowed.length <= 1) return allowed[0] || '';
+  const el = document.getElementById('prod-import-dept-filter');
+  const stored = el?.value || sessionStorage.getItem(PROD_IMPORT_SELECTED_DEPT_KEY) || '';
+  if (!stored) return '';
+  return allowed.includes(stored) ? stored : (allowed[0] || '');
+}
+function getProdImportActiveDepartmentScope() {
+  const allowed = getProdImportAllowedDepartments();
+  const selected = getProdImportSelectedDepartment();
+  if (selected) return [selected];
+  return allowed;
+}
+function getProdImportItemDepartment(item) {
+  if (!item) return '';
+  if (typeof resolveProductionImportDepartment === 'function') return resolveProductionImportDepartment(item) || item.entry?.department || item.department || '';
+  return item.entry?.department || item.department || '';
+}
+function isProdImportItemInActiveScope(item) {
+  const dept = getProdImportItemDepartment(item);
+  const scope = getProdImportActiveDepartmentScope();
+  return !!dept && scope.includes(dept);
+}
+function getProdImportScopedPreviewRows(rows = productionImportState.preview) {
+  return (Array.isArray(rows) ? rows : []).filter(isProdImportItemInActiveScope);
+}
+function getProdImportScopeLabel() {
+  const selected = getProdImportSelectedDepartment();
+  const scope = getProdImportActiveDepartmentScope();
+  if (selected) return deptLabel(selected);
+  if (scope.length === 1) return deptLabel(scope[0]);
+  return 'All allowed departments';
+}
+function injectProdImportDepartmentSelector() {
+  const actions = document.querySelector('#pg-importproduction .prod-import-actions');
+  if (!actions || document.getElementById('prod-import-dept-filter-wrap')) return;
+  const allowed = getProdImportAllowedDepartments();
+  const canSelectMany = allowed.length > 1;
+  const options = (canSelectMany ? '<option value="">All allowed departments</option>' : '') + allowed.map(id => `<option value="${id}">${escapeHtml(deptLabel(id))}</option>`).join('');
+  actions.insertAdjacentHTML('afterbegin', `<div id="prod-import-dept-filter-wrap" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-right:6px;">
+    <span style="font-size:12px;color:var(--tx2);font-weight:800;">Department</span>
+    <select class="fsel" id="prod-import-dept-filter" style="min-width:190px;" ${canSelectMany ? '' : 'disabled'} onchange="setProdImportDepartmentScope(this.value)">${options}</select>
+  </div>`);
+  const select = document.getElementById('prod-import-dept-filter');
+  if (select) {
+    const stored = sessionStorage.getItem(PROD_IMPORT_SELECTED_DEPT_KEY) || '';
+    if (stored && allowed.includes(stored)) select.value = stored;
+    else if (!canSelectMany && allowed[0]) select.value = allowed[0];
+  }
+}
+function setProdImportDepartmentScope(deptId) {
+  const allowed = getProdImportAllowedDepartments();
+  const value = deptId && allowed.includes(deptId) ? deptId : '';
+  try { sessionStorage.setItem(PROD_IMPORT_SELECTED_DEPT_KEY, value); } catch (e) {}
+  const sel = document.getElementById('prod-import-dept-filter');
+  if (sel) sel.value = value;
+  renderImportProduction();
+  toast(`Import Production scope: ${getProdImportScopeLabel()}`);
+}
+window.setProdImportDepartmentScope = setProdImportDepartmentScope;
+const _renderImportProduction_deptSelectedBase = renderImportProduction;
+renderImportProduction = function () {
+  injectProdImportDepartmentSelector();
+  const body = document.getElementById('prod-import-body'), empty = document.getElementById('prod-import-empty');
+  if (!body || !empty) return;
+  const originalPreview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const scopedPreview = getProdImportScopedPreviewRows(originalPreview);
+  const savedPreview = productionImportState.preview;
+  productionImportState.preview = scopedPreview;
+  try {
+    _renderImportProduction_deptSelectedBase.apply(this, arguments);
+  } finally {
+    productionImportState.preview = savedPreview;
+  }
+  const summary = document.getElementById('prod-import-summary-panel');
+  if (summary) {
+    const total = originalPreview.length;
+    const shown = scopedPreview.length;
+    const hidden = Math.max(0, total - shown);
+    const note = `<div style="margin-top:7px;color:var(--tx3);font-size:12px;">Department scope: <strong>${escapeHtml(getProdImportScopeLabel())}</strong>${hidden ? ` · ${hidden} row${hidden === 1 ? '' : 's'} outside this scope are protected from these buttons.` : ''}</div>`;
+    if (!summary.innerHTML.includes('Department scope:')) summary.insertAdjacentHTML('beforeend', note);
+  }
+};
+window.renderImportProduction = renderImportProduction;
+const _refreshProductionImportSummary_deptSelectedBase = typeof refreshProductionImportSummary === 'function' ? refreshProductionImportSummary : null;
+if (_refreshProductionImportSummary_deptSelectedBase) {
+  refreshProductionImportSummary = function (rows) {
+    return _refreshProductionImportSummary_deptSelectedBase.call(this, getProdImportScopedPreviewRows(rows || productionImportState.preview));
+  };
+  window.refreshProductionImportSummary = refreshProductionImportSummary;
+}
+function clearProductionImportPreview() {
+  const current = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const scoped = getProdImportScopedPreviewRows(current);
+  if (!scoped.length) { toast(`No rows to clear for ${getProdImportScopeLabel()}`, 'info'); return; }
+  if (!confirm(`Clear ${scoped.length} preview row${scoped.length === 1 ? '' : 's'} for ${getProdImportScopeLabel()} only? Rows from other departments will remain.`)) return;
+  const scopedIds = new Set(scoped.map(item => String(item.id || item.row)));
+  productionImportState.preview = current.filter(item => !scopedIds.has(String(item.id || item.row)));
+  productionImportState.previewTab = 'all';
+  saveProductionImportState();
+  renderImportProduction();
+  setProdImportStep(productionImportState.preview.length ? 'preview' : 'uploaded');
+  const input = document.getElementById('prod-import-input'); if (input) input.value = '';
+  toast(`Cleared ${scoped.size || scoped.length} row${scoped.length === 1 ? '' : 's'} for ${getProdImportScopeLabel()}`);
+}
+window.clearProductionImportPreview = clearProductionImportPreview;
+function assertProdImportRowInScope(rowIndex, actionName = 'This action') {
+  const item = (Array.isArray(productionImportState.preview) ? productionImportState.preview : []).find(x => String(x.id || x.row) === String(rowIndex));
+  if (!item) { toast('Row not found', 'error'); return null; }
+  if (!isProdImportItemInActiveScope(item)) { toast(`${actionName} is allowed only for ${getProdImportScopeLabel()}`, 'error'); return null; }
+  return item;
+}
+const _ignoreProductionImportRow_deptSelectedBase = typeof ignoreProductionImportRow === 'function' ? ignoreProductionImportRow : null;
+if (_ignoreProductionImportRow_deptSelectedBase) {
+  ignoreProductionImportRow = function (rowIndex, mode) {
+    if (!assertProdImportRowInScope(rowIndex, 'Ignore')) return;
+    return _ignoreProductionImportRow_deptSelectedBase.apply(this, arguments);
+  };
+  window.ignoreProductionImportRow = ignoreProductionImportRow;
+}
+const _skipProductionImportRow_deptSelectedBase = typeof skipProductionImportRow === 'function' ? skipProductionImportRow : null;
+if (_skipProductionImportRow_deptSelectedBase) {
+  skipProductionImportRow = function (rowIndex) {
+    if (!assertProdImportRowInScope(rowIndex, 'Skip')) return;
+    return _skipProductionImportRow_deptSelectedBase.apply(this, arguments);
+  };
+  window.skipProductionImportRow = skipProductionImportRow;
+}
+const _resolveProductionImportDuplicate_deptSelectedBase = typeof resolveProductionImportDuplicate === 'function' ? resolveProductionImportDuplicate : null;
+if (_resolveProductionImportDuplicate_deptSelectedBase) {
+  resolveProductionImportDuplicate = function (rowIndex, action) {
+    if (!assertProdImportRowInScope(rowIndex, 'Duplicate resolution')) return;
+    return _resolveProductionImportDuplicate_deptSelectedBase.apply(this, arguments);
+  };
+  window.resolveProductionImportDuplicate = resolveProductionImportDuplicate;
+}
+const _mapProductionImportRow_deptSelectedBase = typeof mapProductionImportRow === 'function' ? mapProductionImportRow : null;
+if (_mapProductionImportRow_deptSelectedBase) {
+  mapProductionImportRow = function (rowIndex, targetField, saveDefault = false) {
+    if (!assertProdImportRowInScope(rowIndex, 'Mapping')) return;
+    return _mapProductionImportRow_deptSelectedBase.apply(this, arguments);
+  };
+  window.mapProductionImportRow = mapProductionImportRow;
+}
+function applyBulkDuplicateResolution(action = 'remove') {
+  const permKey = action === 'accept' ? 'acceptduplicates' : 'removeduplicates';
+  if (!canI('importproduction', permKey)) { toast('You do not have permission to ' + (action === 'accept' ? 'accept' : 'remove') + ' duplicates in bulk', 'error'); return; }
+  validateProductionImportPreview();
+  const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const scoped = getProdImportScopedPreviewRows(preview);
+  const duplicates = scoped.filter(item => isProductionImportDuplicateStatus(item));
+  if (!duplicates.length) { toast(`No duplicate rows detected for ${getProdImportScopeLabel()}`, 'info'); return; }
+  if (action === 'remove') {
+    const duplicateIds = new Set(duplicates.map(item => String(item.id || item.row)));
+    productionImportState.preview = preview.filter(item => !duplicateIds.has(String(item.id || item.row)));
+    saveProductionImportState();
+    renderImportProduction();
+    refreshProductionImportSummary(productionImportState.preview);
+    toast(`Removed ${duplicates.length} duplicate row${duplicates.length === 1 ? '' : 's'} from ${getProdImportScopeLabel()} preview`);
+    return;
+  }
+  duplicates.forEach(item => {
+    item.status = 'Ready';
+    item.reason = 'Duplicate accepted by authorized user';
+    item.canImport = true;
+    item.severity = 'ok';
+    item.isDuplicate = false;
+    item.isSkipped = false;
+    item.importAction = 'accepted';
+  });
+  productionImportState.preview = preview;
+  saveProductionImportState();
+  renderImportProduction();
+  refreshProductionImportSummary(preview);
+  toast(`Duplicate rows accepted for ${getProdImportScopeLabel()}`);
+}
+window.applyBulkDuplicateResolution = applyBulkDuplicateResolution;
+const _validateProductionImportPreview_deptSelectedBase = validateProductionImportPreview;
+validateProductionImportPreview = function () {
+  const result = _validateProductionImportPreview_deptSelectedBase.apply(this, arguments);
+  renderImportProduction();
+  return result;
+};
+window.validateProductionImportPreview = validateProductionImportPreview;
+async function commitProductionImport() {
+  if (!canI('importproduction', 'import')) { toast('Not allowed', 'error'); return; }
+  validateProductionImportPreview();
+  const fullPreview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const preview = getProdImportScopedPreviewRows(fullPreview);
+  if (!preview.length) { toast(`No preview rows available for ${getProdImportScopeLabel()}`, 'error'); return; }
+  const readyRows = getFilteredProductionImportPreviewRows('ready', preview).filter(item => isProdImportItemInActiveScope(item));
+  if (!readyRows.length) { toast(`No clean Ready rows are available for ${getProdImportScopeLabel()}. Resolve errors, warnings, or duplicates before confirming.`, 'error'); return; }
+  return runWithImportLoading(`Importing production for ${getProdImportScopeLabel()}...`, async () => {
+    try {
+      let created = 0, skipped = 0; const skippedList = [];
+      const processedIds = new Set(preview.map(item => String(item.id || item.row)));
+      for (const item of preview) {
+        resolveProductionImportDepartment(item);
+        const normalized = normalizeImportRecord(item);
+        normalized.entry.department = normalized.entry.department || item.department || '';
+        const rowNo = item.row || '-';
+        const blocked = !getFilteredProductionImportPreviewRows('ready', [normalized]).length || !isProdImportItemInActiveScope(normalized);
+        if (blocked) { skipped++; skippedList.push({ row: rowNo, reason: normalized.reason || 'Blocked by validation or selected department scope' }); continue; }
+        const selectedEmployees = Array.isArray(normalized.selectedEmployeeIds) && normalized.selectedEmployeeIds.length
+          ? normalized.selectedEmployeeIds
+          : (normalized.entry?.techId ? [{ rawId: normalized.entry.techId, techId: normalized.entry.techId, techName: normalized.entry.techName }] : []);
+        if (!selectedEmployees.length) { skipped++; skippedList.push({ row: rowNo, reason: 'No employee selected for import' }); continue; }
+        const baseEntry = { ...normalized.entry, importedSource: 'ComponentTATStatus', approvalStatus: 'pending', department: normalized.entry.department };
+        for (const employee of selectedEmployees) {
+          const techDept = getDepartmentFromTechnicianId(employee.techId || employee.rawId || '', employee.techName || '') || baseEntry.department;
+          const entryDept = techDept || baseEntry.department;
+          const scope = getProdImportActiveDepartmentScope();
+          if (!entryDept || !scope.includes(entryDept)) { skipped++; skippedList.push({ row: rowNo, reason: 'Employee department is outside selected import scope' }); continue; }
+          const entry = { ...baseEntry, department: entryDept, techId: employee.techId || employee.rawId || '', techName: employee.techName || employee.rawId || '', taskCode: String(baseEntry.taskCode || '').trim().toUpperCase(), pnum: String(baseEntry.pnum || '').trim(), time: String(baseEntry.time || '').slice(0, 10) };
+          if (!entry.techId || !entry.taskCode || !entry.pnum || !entry.time || !entry.department) { skipped++; skippedList.push({ row: rowNo, reason: 'Missing required fields or department' }); continue; }
+          if (normalized.importAction !== 'accepted' && isDuplicateImportEntry(entry, [])) { skipped++; skippedList.push({ row: rowNo, reason: 'Duplicate blocked at final import protection' }); continue; }
+          const saved = await DB.upsert('entries', entry);
+          entries.unshift(saved);
+          created++;
+        }
+      }
+      productionImportState.preview = fullPreview.filter(item => !processedIds.has(String(item.id || item.row)));
+      saveProductionImportState();
+      const summary = `Imported ${created} entries for ${getProdImportScopeLabel()}${skipped ? `, skipped ${skipped}` : ''}`;
+      renderProdImportReport({ created, skipped, skippedList });
+      if (canManageEntriesUI()) renderAllEntries();
+      renderImportProduction();
+      toast(summary + '. Selected department preview cleared after confirm.');
+    } catch (err) { console.error(err); toast('Production import failed: ' + (err?.message || err), 'error'); }
+  });
+}
+window.commitProductionImport = commitProductionImport;
+window.commitProdImportFromModal = commitProductionImport;
+window.commitProdImportResolved = commitProductionImport;
+const _showPage_prodImportScopeBase = typeof showPage === 'function' ? showPage : null;
+if (_showPage_prodImportScopeBase) {
+  showPage = function (page) {
+    const result = _showPage_prodImportScopeBase.apply(this, arguments);
+    if (page === 'importproduction') setTimeout(() => { injectProdImportDepartmentSelector(); renderImportProduction(); }, 60);
+    return result;
+  };
+  window.showPage = showPage;
+}
+document.addEventListener('DOMContentLoaded', () => { setTimeout(injectProdImportDepartmentSelector, 800); });
+
 </script>
 </body>
 </html>
