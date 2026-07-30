@@ -9076,6 +9076,73 @@ if (_showPage_prodImportScopeBase) {
 }
 document.addEventListener('DOMContentLoaded', () => { setTimeout(injectProdImportDepartmentSelector, 800); });
 
+
+// ════════════════════════════════════════════════
+//  IMPORT PRODUCTION SCOPE PRIVACY PATCH
+//  Prevents hidden/out-of-scope row counts and reasons from leaking across department scope.
+// ════════════════════════════════════════════════
+function prodImportHiddenRowInActiveScope(row) {
+  if (!row) return false;
+  const dept = row.department || row.dept || row.entry?.department || '';
+  if (!dept) return false;
+  return getProdImportActiveDepartmentScope().includes(dept);
+}
+function getScopedProductionImportHiddenRows(hiddenRows = productionImportState.hiddenSkipped) {
+  return (Array.isArray(hiddenRows) ? hiddenRows : []).filter(prodImportHiddenRowInActiveScope);
+}
+function recordProductionImportHiddenRows(hiddenRows) {
+  const el = document.getElementById('prod-import-skipped');
+  if (!el) return;
+  const scopedHidden = getScopedProductionImportHiddenRows(hiddenRows);
+  if (!scopedHidden.length) {
+    el.innerHTML = '';
+    return;
+  }
+  const count = scopedHidden.length;
+  const preview = scopedHidden.slice(0, 8).map(s => `<tr><td class="mono">${escapeHtml(String(s.row || '—'))}</td><td>${escapeHtml(s.reason || '')}</td></tr>`).join('');
+  el.innerHTML = `<div style="margin-top:8px;color:var(--tx2);"><strong>${count} row${count === 1 ? '' : 's'} hidden in ${escapeHtml(getProdImportScopeLabel())}</strong> because WP ID was blank, employee was not found, or the row could not be imported.</div>
+    <div style="margin-top:6px;max-height:180px;overflow:auto;border:1px solid var(--bdr);padding:8px;border-radius:8px;background:var(--inp-bg)">
+      <table style="width:100%;font-size:13px;"><thead><tr><th style="text-align:left;width:70px">Row</th><th style="text-align:left">Reason</th></tr></thead><tbody>${preview}</tbody></table>
+      ${count > 8 ? `<div style="margin-top:6px;color:var(--tx3);">+ ${count - 8} more hidden row${count - 8 === 1 ? '' : 's'}</div>` : ''}
+    </div>`;
+}
+window.recordProductionImportHiddenRows = recordProductionImportHiddenRows;
+function refreshProductionImportSummary(rows) {
+  const summary = document.getElementById('prod-import-summary-panel');
+  if (!summary) return;
+  const scopedRows = getProdImportScopedPreviewRows(rows || productionImportState.preview);
+  const ready = getFilteredProductionImportPreviewRows('ready', scopedRows).length;
+  const errors = getFilteredProductionImportPreviewRows('errors', scopedRows).length;
+  const warnings = getFilteredProductionImportPreviewRows('warnings', scopedRows).length;
+  const duplicates = getFilteredProductionImportPreviewRows('duplicates', scopedRows).length;
+  const skipped = scopedRows.filter(item => item.isSkipped || item.status === 'Ignored by user' || item.status === 'Ignored once').length;
+  summary.innerHTML = `<strong>Import summary:</strong> ${scopedRows.length} rows scanned • ${ready} ready • ${errors} errors • ${warnings} warnings • ${duplicates} duplicates ignored by default • ${skipped} skipped
+    <div style="margin-top:7px;color:var(--tx3);font-size:12px;">Department scope: <strong>${escapeHtml(getProdImportScopeLabel())}</strong></div>`;
+}
+window.refreshProductionImportSummary = refreshProductionImportSummary;
+const _renderImportProduction_privacyBase = renderImportProduction;
+renderImportProduction = function () {
+  const result = _renderImportProduction_privacyBase.apply(this, arguments);
+  recordProductionImportHiddenRows(productionImportState.hiddenSkipped || []);
+  const summary = document.getElementById('prod-import-summary-panel');
+  if (summary) {
+    // Remove any old cross-scope leakage text that may have been inserted by previous versions.
+    summary.innerHTML = summary.innerHTML.replace(/\s*·\s*\d+ row(?:s)? outside this scope are protected from these buttons\./g, '');
+  }
+  return result;
+};
+window.renderImportProduction = renderImportProduction;
+const _previewProductionImport_privacyBase = previewProductionImport;
+previewProductionImport = async function (input) {
+  const result = await _previewProductionImport_privacyBase.apply(this, arguments);
+  // After preview, hide all non-department-scoped skipped information from the UI.
+  recordProductionImportHiddenRows(productionImportState.hiddenSkipped || []);
+  refreshProductionImportSummary(productionImportState.preview || []);
+  return result;
+};
+window.previewProductionImport = previewProductionImport;
+window.handleProdImportUpload = previewProductionImport;
+
 </script>
 </body>
 </html>
