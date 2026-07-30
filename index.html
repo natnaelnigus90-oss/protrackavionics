@@ -6499,6 +6499,2326 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+
+// ════════════════════════════════════════════════
+//  PRODUCTION IMPORT SAFETY PATCH — duplicates ignored by default + accurate filters
+//  Merged directly into this HTML on 2026-07-29
+// ════════════════════════════════════════════════
+function prodImportNorm(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+function prodImportDateKey(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const normalized = normalizeImportDate(raw);
+  return normalized || raw.slice(0, 10).toLowerCase();
+}
+function prodImportHoursKey(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const n = Number(value);
+  return Number.isFinite(n) ? String(Math.round(n * 1000) / 1000) : prodImportNorm(value);
+}
+function getProductionImportDuplicateKeyFromEntry(entry = {}, includeHours = false) {
+  const base = [
+    prodImportNorm(entry.techId || entry.employeeId || entry.techName || entry.employee || ''),
+    prodImportNorm(entry.taskCode || ''),
+    prodImportNorm(entry.jobRole || entry.role || ''),
+    prodImportNorm(entry.pnum || entry.partNumber || entry.partNo || entry.part || ''),
+    prodImportDateKey(entry.time || entry.date || entry.dateCompleted || entry.completedDate || '')
+  ];
+  if (includeHours) base.push(prodImportHoursKey(entry.hours || entry.achievedHours || entry.sdtHours || ''));
+  return base.join('|');
+}
+function productionImportKeyHasRequiredParts(key) {
+  const parts = String(key || '').split('|');
+  return parts.length >= 5 && parts.slice(0, 5).every(Boolean);
+}
+function isProductionImportDuplicateStatus(item) {
+  const text = prodImportNorm(`${item?.status || ''} ${item?.reason || ''} ${item?.badge || ''}`);
+  return item?.isDuplicate === true || item?.duplicate === true || text.includes('duplicate');
+}
+function productionImportHasBlockingError(item) {
+  return item?.severity === 'error' || item?.status === 'Error' || item?.hasError === true || (Array.isArray(item?.errors) && item.errors.length > 0);
+}
+function productionImportHasWarning(item) {
+  return item?.severity === 'warning' || item?.status === 'Warning' || item?.hasWarning === true || (Array.isArray(item?.warnings) && item.warnings.length > 0);
+}
+function markProductionImportDuplicateIgnored(item, reason) {
+  item.status = 'Duplicate ignored';
+  item.reason = reason || 'Duplicate row ignored by default to prevent double import';
+  item.canImport = false;
+  item.severity = 'warning';
+  item.isDuplicate = true;
+  item.isSkipped = true;
+  item.importAction = 'ignored';
+  item.badge = 'Duplicate ignored';
+  return item;
+}
+function getProductionImportDuplicateIndexes(preview = []) {
+  const existingBase = new Set();
+  const existingStrict = new Set();
+  (Array.isArray(entries) ? entries : []).forEach(existing => {
+    const base = getProductionImportDuplicateKeyFromEntry(existing, false);
+    const strict = getProductionImportDuplicateKeyFromEntry(existing, true);
+    if (productionImportKeyHasRequiredParts(base)) existingBase.add(base);
+    if (productionImportKeyHasRequiredParts(strict)) existingStrict.add(strict);
+  });
+  const seenBase = new Map();
+  const seenStrict = new Map();
+  const duplicateIndexes = new Set();
+  preview.forEach((item, index) => {
+    if (item && item.importAction === 'accepted') return;
+    const base = getProductionImportDuplicateKeyFromEntry(item.entry || {}, false);
+    const strict = getProductionImportDuplicateKeyFromEntry(item.entry || {}, true);
+    if (!productionImportKeyHasRequiredParts(base)) return;
+    if (existingBase.has(base) || existingStrict.has(strict)) {
+      duplicateIndexes.add(index);
+      item.duplicateSource = 'existing-entry';
+      return;
+    }
+    const duplicateOf = seenStrict.has(strict) ? seenStrict.get(strict) : seenBase.get(base);
+    if (duplicateOf !== undefined) {
+      duplicateIndexes.add(index);
+      item.duplicateSource = 'current-import';
+      item.duplicateOf = duplicateOf;
+      return;
+    }
+    seenBase.set(base, index);
+    if (productionImportKeyHasRequiredParts(strict)) seenStrict.set(strict, index);
+  });
+  return duplicateIndexes;
+}
+function isDuplicateImportEntry(candidate, group = []) {
+  const base = getProductionImportDuplicateKeyFromEntry(candidate || {}, false);
+  const strict = getProductionImportDuplicateKeyFromEntry(candidate || {}, true);
+  if (!productionImportKeyHasRequiredParts(base)) return false;
+  const matchesKey = (entry) => {
+    const entryBase = getProductionImportDuplicateKeyFromEntry(entry || {}, false);
+    const entryStrict = getProductionImportDuplicateKeyFromEntry(entry || {}, true);
+    return entryBase === base || (strict && entryStrict === strict);
+  };
+  return (Array.isArray(entries) ? entries : []).some(matchesKey) || (Array.isArray(group) ? group : []).some(item => item && matchesKey(item.entry || item));
+}
+function getDuplicatePreviewGroups(preview = []) {
+  const items = Array.isArray(preview) ? preview.filter(Boolean) : [];
+  const map = new Map();
+  items.forEach(item => {
+    const base = getProductionImportDuplicateKeyFromEntry(item.entry || {}, false);
+    if (!productionImportKeyHasRequiredParts(base)) return;
+    if (!map.has(base)) map.set(base, []);
+    map.get(base).push(item);
+  });
+  const groups = Array.from(map.values()).filter(group => group.length > 1);
+  items.forEach(item => {
+    if (isProductionImportDuplicateStatus(item) && !groups.some(group => group.includes(item))) groups.push([item]);
+  });
+  return groups;
+}
+function validateProductionImportPreview() {
+  const items = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const next = items.map(item => ({ ...item, entry: { ...(item.entry || {}) }, missingRequired: [] }));
+  next.forEach(item => {
+    const entry = item.entry || {};
+    const normalized = {
+      ...entry,
+      taskCode: String(entry.taskCode || '').trim().toUpperCase(),
+      jobRole: String(entry.jobRole || '').trim(),
+      pnum: String(entry.pnum || '').trim(),
+      time: String(entry.time || '').slice(0, 10),
+      techId: String(entry.techId || '').trim(),
+      techName: String(entry.techName || '').trim(),
+      pname: String(entry.pname || '').trim()
+    };
+    item.entry = normalized;
+    item.isDuplicate = false;
+    item.isSkipped = false;
+    item.importAction = '';
+    const reasons = [];
+    if (productionImportState.ignoreAlways.includes(String(item.id || item.row))) {
+      item.status = 'Ignored by user';
+      item.reason = 'Ignored for future rows';
+      item.canImport = false;
+      item.severity = 'warning';
+      item.isSkipped = true;
+      return;
+    }
+    if (item.isEmptyRow) {
+      item.status = 'Warning';
+      item.reason = 'Empty or footer row skipped';
+      item.canImport = false;
+      item.severity = 'warning';
+      item.isSkipped = true;
+      return;
+    }
+    const part = findPartByNumber(normalized.pnum);
+    const employeeState = buildEmployeeSelectionState(item);
+    const { parsedEmployees, validCandidates, missingCandidates, selectedEmployees, status, canImport } = employeeState;
+    if (!normalized.time) reasons.push(item.dateValidation || 'Missing date');
+    if (!normalized.pnum) reasons.push('Missing part');
+    else if (!part) reasons.push('Missing part');
+    const statusInfo = normalizeImportStatus(normalized.jobType || '');
+    if (!statusInfo.supported) reasons.push('Unsupported status');
+    if (parsedEmployees.length && !validCandidates.length) reasons.push('Missing employee');
+    else if (status === 'Needs selection') reasons.push('Needs selection');
+    else if (status === 'Partial match') reasons.push('Partial match');
+    if (selectedEmployees.length) {
+      item.entry = { ...normalized, techId: selectedEmployees[0].techId, techName: selectedEmployees[0].techName };
+    } else if (validCandidates.length === 1) {
+      const fallback = validCandidates[0];
+      item.entry = { ...normalized, techId: fallback.techId, techName: fallback.techName };
+      item.selectedEmployeeIds = [{ rawId: fallback.rawId, techId: fallback.techId, techName: fallback.techName }];
+    }
+    item.employeeItems = parsedEmployees;
+    item.selectedEmployeeIds = Array.isArray(item.selectedEmployeeIds) ? item.selectedEmployeeIds : [];
+    item.missingRequired = reasons;
+    item.validationStatus = status;
+    if (reasons.length) {
+      item.status = status === 'Needs selection' ? 'Needs selection' : (status === 'Partial match' ? 'Partial match' : (status === 'Missing employee' ? 'Missing employee' : 'Needs review'));
+      item.reason = status === 'Needs selection' ? 'Multiple valid employees found - select one or more' : (status === 'Partial match' ? `Found ${validCandidates.length} valid employee${validCandidates.length === 1 ? '' : 's'} and ${missingCandidates.length} missing ID${missingCandidates.length === 1 ? '' : 's'}` : (status === 'Missing employee' ? 'No valid employee found' : reasons.join(', ')));
+      item.canImport = false;
+      item.severity = canImport ? 'warning' : 'error';
+      return;
+    }
+    item.status = 'Ready';
+    item.reason = '';
+    item.canImport = true;
+    item.severity = 'ok';
+  });
+
+  const duplicateIndexes = getProductionImportDuplicateIndexes(next);
+  duplicateIndexes.forEach(index => {
+    const item = next[index];
+    const sourceText = item.duplicateSource === 'existing-entry' ? 'Duplicate found against existing saved production entry' : 'Duplicate found inside current import preview';
+    markProductionImportDuplicateIgnored(item, sourceText);
+  });
+
+  productionImportState.preview = next;
+  saveProductionImportState();
+  renderImportProduction();
+  if (!productionImportState.selectionModalOpened) {
+    const pendingSelection = next.find(item => item.hasMultipleEmployees && item.validationStatus === 'Needs selection' && (!Array.isArray(item.selectedEmployeeIds) || !item.selectedEmployeeIds.length));
+    if (pendingSelection) openEmployeeSelectionModal(pendingSelection.id || pendingSelection.row);
+  }
+  refreshProductionImportSummary(next);
+}
+window.validateProductionImportPreview = validateProductionImportPreview;
+function refreshProductionImportSummary(items = []) {
+  const preview = Array.isArray(items) && items.length ? items : (Array.isArray(productionImportState.preview) ? productionImportState.preview : []);
+  const summary = document.getElementById('prod-import-summary-panel');
+  if (!summary) return;
+  const next = preview.filter(Boolean);
+  const totals = {
+    total: next.length,
+    ready: next.filter(r => r.canImport === true && !isProductionImportDuplicateStatus(r) && !r.isSkipped && !productionImportHasBlockingError(r) && !productionImportHasWarning(r)).length,
+    errors: next.filter(r => productionImportHasBlockingError(r)).length,
+    warnings: next.filter(r => productionImportHasWarning(r) && !productionImportHasBlockingError(r) && !isProductionImportDuplicateStatus(r)).length,
+    duplicates: next.filter(r => isProductionImportDuplicateStatus(r)).length,
+    skipped: next.filter(r => r.isSkipped || r.canImport === false || isProductionImportDuplicateStatus(r)).length,
+    missingParts: next.filter(r => (r.reason || '').includes('Missing part')).length,
+    missingEmployees: next.filter(r => (r.reason || '').includes('Missing employee') || (r.reason || '').includes('Needs selection') || (r.reason || '').includes('Partial match')).length
+  };
+  summary.innerHTML = `<strong>Import summary:</strong> ${totals.total} rows scanned • ${totals.ready} ready • ${totals.errors} errors • ${totals.warnings} warnings • ${totals.duplicates} duplicates ignored by default • ${totals.skipped} skipped`;
+  if (totals.errors || totals.warnings || totals.duplicates) setProdImportStep('review');
+  else if (totals.ready) setProdImportStep('confirm');
+  else setProdImportStep('validated');
+}
+function setProdImportTab(tab) {
+  productionImportState.previewTab = tab;
+  const tabs = document.querySelectorAll('#prod-import-tabs .prod-import-tab');
+  tabs.forEach(el => el.classList.toggle('on', el.dataset.tab === tab));
+  renderImportProduction();
+}
+window.setProdImportTab = setProdImportTab;
+function getFilteredProductionImportPreviewRows(tab, rows) {
+  const activeTab = prodImportNorm(tab || 'all');
+  return (Array.isArray(rows) ? rows : []).filter(r => {
+    const duplicate = isProductionImportDuplicateStatus(r);
+    const error = productionImportHasBlockingError(r);
+    const warning = productionImportHasWarning(r) && !error && !duplicate;
+    const skipped = r.isSkipped === true || r.status === 'Skipped by user' || r.status === 'Ignored by user' || r.status === 'Ignored once';
+    const ready = r.canImport === true && !duplicate && !error && !warning && !skipped;
+    if (activeTab === 'ready') return ready;
+    if (activeTab === 'errors' || activeTab === 'error') return error;
+    if (activeTab === 'warnings' || activeTab === 'warning') return warning;
+    if (activeTab === 'duplicates' || activeTab === 'duplicate') return duplicate;
+    return true;
+  });
+}
+function renderImportProduction() {
+  const body = document.getElementById('prod-import-body'), empty = document.getElementById('prod-import-empty'); if (!body || !empty) return;
+  const rows = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const activeTab = productionImportState.previewTab || 'all';
+  const filteredRows = getFilteredProductionImportPreviewRows(activeTab, rows);
+  refreshProductionImportSummary(rows);
+  empty.style.display = rows.length && !filteredRows.length ? 'block' : rows.length ? 'none' : 'block';
+  if (empty.style.display === 'block') {
+    empty.querySelector('.et').textContent = rows.length ? 'No rows match this filter.' : 'No preview loaded yet.';
+  }
+  body.innerHTML = filteredRows.map((item, idx) => {
+    const entry = item.entry || {};
+    const status = item.status || 'Needs review';
+    const badgeClass = isProductionImportDuplicateStatus(item) ? 'warn' : (status === 'Ready' ? 'good' : (status === 'Warning' || status === 'Ignored by user' || status === 'Ignored once' || item.severity === 'warning' ? 'warn' : 'error'));
+    const badge = `<span class="prod-import-row-badge ${badgeClass}">${escapeHtml(status)}</span>`;
+    const employeeSummary = item.employeeItems?.length ? item.employeeItems.map(emp => `${emp.valid ? '✓' : '✗'} ${escapeHtml(emp.rawId)}`).join('<br>') : escapeHtml(entry.techName || entry.techId || '—');
+    const resolveEmployeeAction = item.hasMultipleEmployees ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openEmployeeSelectionModal('${item.id || item.row}')">Resolve Employees</button>` : '';
+    const addTechAction = !item.hasMultipleEmployees && ((!entry.techName && !entry.techId) || (entry.techId && !entry.techName)) ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openAddTechForImport('${item.id || item.row}')">Add Employee</button>` : '';
+    const mapTechAction = !item.hasMultipleEmployees && entry.techId && !entry.techName ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRow('${item.id || item.row}','tech')">Map Existing Employee</button>` : '';
+    const addPartAction = (!entry.pname && !entry.pnum) || (!entry.pname && entry.pnum) ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openAddPartForImport('${item.id || item.row}')">Add Part</button>` : '';
+    const mapPartAction = entry.pnum && !entry.pname ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRow('${item.id || item.row}','part')">Map Existing Part</button>` : '';
+    const ignoreOnceAction = `<button class="btn bo bsm" style="padding:3px 8px;" onclick="ignoreProductionImportRow('${item.id || item.row}','once')">Ignore Once</button>`;
+    const ignoreAlwaysAction = `<button class="btn bo bsm" style="padding:3px 8px;" onclick="ignoreProductionImportRow('${item.id || item.row}','always')">Ignore Always</button>`;
+    const skipAction = `<button class="btn bd bsm" style="padding:3px 8px;" onclick="skipProductionImportRow('${item.id || item.row}')">Skip Row</button>`;
+    const duplicateActions = isProductionImportDuplicateStatus(item) ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.id || item.row}', 'keep-first')">Keep first</button> <button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.id || item.row}', 'keep-last')">Keep last</button>` : '';
+    const detail = item.reason ? `<div class="prod-import-detail">${escapeHtml(item.reason)}</div>` : '';
+    const hours = Number(entry.hours || 0);
+    return `<tr><td class="mono">${item.row || idx + 1}</td><td class="mono">${String(entry.time || '').slice(0, 10) || '—'}</td>
+      <td>${employeeSummary}</td><td>${escapeHtml(entry.jobRole || '—')}</td>
+      <td class="mono" style="color:var(--blue);">${escapeHtml(entry.taskCode || '—')}</td><td class="mono" style="color:var(--amber);">${escapeHtml(entry.pnum || '—')}</td>
+      <td class="mono">${Number.isFinite(hours) ? hours.toFixed(2) : '0.00'}h</td>
+      <td>${badge}<div class="prod-import-row-actions">${resolveEmployeeAction}${addTechAction}${mapTechAction}${addPartAction}${mapPartAction}${ignoreOnceAction}${ignoreAlwaysAction}${skipAction}</div>${duplicateActions}${detail}</td></tr>`;
+  }).join('') || '';
+}
+window.renderImportProduction = renderImportProduction;
+function applyBulkDuplicateResolution(action = 'remove') {
+  const permKey = action === 'accept' ? 'acceptduplicates' : 'removeduplicates';
+  if (!canI('importproduction', permKey)) { toast('You do not have permission to ' + (action === 'accept' ? 'accept' : 'remove') + ' duplicates in bulk', 'error'); return; }
+  validateProductionImportPreview();
+  const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const duplicateRows = preview.filter(item => isProductionImportDuplicateStatus(item));
+  if (!duplicateRows.length) { toast('No duplicate rows detected', 'info'); return; }
+  duplicateRows.forEach(item => {
+    if (action === 'accept') {
+      item.status = 'Ready';
+      item.reason = 'Duplicate accepted by authorized user';
+      item.canImport = true;
+      item.severity = 'ok';
+      item.isDuplicate = false;
+      item.isSkipped = false;
+      item.importAction = 'accepted';
+    } else {
+      markProductionImportDuplicateIgnored(item, 'Duplicate removed in bulk');
+    }
+  });
+  productionImportState.preview = preview;
+  saveProductionImportState();
+  renderImportProduction();
+  refreshProductionImportSummary(preview);
+  toast(action === 'accept' ? 'Duplicate rows accepted' : 'Duplicate rows removed / ignored');
+}
+window.applyBulkDuplicateResolution = applyBulkDuplicateResolution;
+function resolveProductionImportDuplicate(rowIndex, action) {
+  const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const target = getPreviewItemByRow(rowIndex);
+  if (!target) return;
+  const key = getProductionImportDuplicateKeyFromEntry(target.entry || {}, false);
+  const members = preview.filter(item => getProductionImportDuplicateKeyFromEntry(item.entry || {}, false) === key || item === target);
+  const keep = action === 'keep-last' ? members[members.length - 1] : members[0];
+  members.forEach(item => {
+    if (item === keep) {
+      item.status = 'Ready';
+      item.reason = 'Duplicate resolved by user';
+      item.canImport = true;
+      item.severity = 'ok';
+      item.isDuplicate = false;
+      item.isSkipped = false;
+      item.importAction = 'accepted';
+    } else {
+      markProductionImportDuplicateIgnored(item, 'Duplicate resolved by user');
+    }
+  });
+  productionImportState.preview = preview;
+  saveProductionImportState();
+  renderImportProduction();
+  refreshProductionImportSummary(preview);
+}
+window.resolveProductionImportDuplicate = resolveProductionImportDuplicate;
+async function commitProductionImport() {
+  if (!canI('importproduction', 'import')) { toast('Not allowed', 'error'); return; }
+  validateProductionImportPreview();
+  const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  if (!preview.length) { toast('Upload a file first', 'error'); return; }
+  const readyRows = getFilteredProductionImportPreviewRows('ready', preview);
+  if (!readyRows.length) { toast('No clean Ready rows are available. Resolve errors, warnings, or duplicates before confirming.', 'error'); return; }
+  return runWithImportLoading('Importing production...', async () => {
+    try {
+      let created = 0, skipped = 0; const skippedList = [];
+      for (const item of preview) {
+        const normalized = normalizeImportRecord(item);
+        const rowNo = item.row || '-';
+        const blocked = !getFilteredProductionImportPreviewRows('ready', [normalized]).length;
+        if (blocked) {
+          skipped++; skippedList.push({ row: rowNo, reason: normalized.reason || 'Blocked by validation, warning, skipped state, or duplicate protection' });
+          continue;
+        }
+        const selectedEmployees = Array.isArray(normalized.selectedEmployeeIds) && normalized.selectedEmployeeIds.length
+          ? normalized.selectedEmployeeIds
+          : (normalized.entry?.techId ? [{ rawId: normalized.entry.techId, techId: normalized.entry.techId, techName: normalized.entry.techName }] : []);
+        if (!selectedEmployees.length) {
+          skipped++; skippedList.push({ row: rowNo, reason: 'No employee selected for import' });
+          continue;
+        }
+        const baseEntry = { ...normalized.entry, importedSource: 'ComponentTATStatus', approvalStatus: 'pending' };
+        for (const employee of selectedEmployees) {
+          const entry = {
+            ...baseEntry,
+            techId: employee.techId || employee.rawId || '',
+            techName: employee.techName || employee.rawId || '',
+            taskCode: String(baseEntry.taskCode || '').trim().toUpperCase(),
+            pnum: String(baseEntry.pnum || '').trim(),
+            time: String(baseEntry.time || '').slice(0, 10)
+          };
+          if (!entry.techId || !entry.taskCode || !entry.pnum || !entry.time) {
+            skipped++; skippedList.push({ row: rowNo, reason: 'Missing required fields' });
+            continue;
+          }
+          if (normalized.importAction !== 'accepted' && isDuplicateImportEntry(entry, [])) {
+            skipped++; skippedList.push({ row: rowNo, reason: 'Duplicate blocked at final import protection' });
+            continue;
+          }
+          const saved = await DB.upsert('entries', entry);
+          entries.unshift(saved);
+          created++;
+        }
+      }
+      const summary = `Imported ${created} entries${skipped ? `, skipped ${skipped}` : ''}`;
+      const nextPreview = preview.map(item => {
+        if (!getFilteredProductionImportPreviewRows('ready', [item]).length) return item;
+        const status = item.isEmptyRow ? item.status : 'Imported';
+        return { ...item, status, reason: 'Imported successfully. Use Clear Preview to remove this row.', canImport: false, severity: 'ok', isDuplicate: false, isSkipped: false };
+      });
+      productionImportState.preview = nextPreview;
+      saveProductionImportState();
+      renderImportProduction();
+      toast(summary);
+      renderProdImportReport({ created, skipped, skippedList });
+      if (canManageEntriesUI()) renderAllEntries();
+    } catch (err) { console.error(err); toast('Production import failed: ' + (err?.message || err), 'error'); }
+  });
+}
+window.commitProductionImport = commitProductionImport;
+window.commitProdImportFromModal = commitProductionImport;
+window.commitProdImportResolved = commitProductionImport;
+
+
+// ════════════════════════════════════════════════
+//  PRODUCTION IMPORT STATUS REFRESH PATCH
+//  Fix: resolved employee/part/duplicate cases immediately become Ready when clean.
+// ════════════════════════════════════════════════
+function validateProductionImportPreview() {
+  const items = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const next = items.map(item => ({
+    ...item,
+    entry: { ...(item.entry || {}) },
+    missingRequired: [],
+    errors: [],
+    warnings: []
+  }));
+
+  next.forEach(item => {
+    const entry = item.entry || {};
+    const normalized = {
+      ...entry,
+      taskCode: String(entry.taskCode || '').trim().toUpperCase(),
+      jobRole: String(entry.jobRole || '').trim(),
+      pnum: String(entry.pnum || '').trim(),
+      time: String(entry.time || '').slice(0, 10),
+      techId: String(entry.techId || '').trim(),
+      techName: String(entry.techName || '').trim(),
+      pname: String(entry.pname || '').trim()
+    };
+
+    item.entry = normalized;
+    item.missingRequired = [];
+    item.errors = [];
+    item.warnings = [];
+
+    // Reset stale row state on every validation pass, except an authorized duplicate acceptance.
+    const duplicateWasAccepted = item.importAction === 'accepted';
+    item.isDuplicate = false;
+    item.isSkipped = false;
+    item.badge = '';
+    if (!duplicateWasAccepted) item.importAction = '';
+
+    if (productionImportState.ignoreAlways.includes(String(item.id || item.row))) {
+      item.status = 'Ignored by user';
+      item.reason = 'Ignored for future rows';
+      item.canImport = false;
+      item.severity = 'warning';
+      item.isSkipped = true;
+      return;
+    }
+
+    if (item.isEmptyRow) {
+      item.status = 'Warning';
+      item.reason = 'Empty or footer row skipped';
+      item.canImport = false;
+      item.severity = 'warning';
+      item.isSkipped = true;
+      return;
+    }
+
+    const reasons = [];
+    const part = findPartByNumber(normalized.pnum);
+    if (part) {
+      item.entry = {
+        ...item.entry,
+        pnum: part.num || normalized.pnum,
+        pname: part.name || normalized.pname,
+        stdHours: part.hours || normalized.stdHours || 0,
+        hours: normalized.hours || calcPoolHrs(part, normalized.jobRole, normalized.taskCode)
+      };
+    }
+
+    let employeeState = buildEmployeeSelectionState(item);
+    let parsedEmployees = employeeState.parsedEmployees;
+    let validCandidates = employeeState.validCandidates;
+    let missingCandidates = employeeState.missingCandidates;
+    let selectedEmployees = employeeState.selectedEmployees;
+    let status = employeeState.status;
+    let canImportEmployee = employeeState.canImport;
+
+    // If the user manually maps or fixes the employee ID/name, override stale missing employee state.
+    const selectedValid = (Array.isArray(item.selectedEmployeeIds) ? item.selectedEmployeeIds : []).filter(sel => findTechByIdOrName(sel.techId || sel.id || sel.rawId || sel.techName));
+    const manualTech = findTechByIdOrName(normalized.techId) || findTechByIdOrName(normalized.techName);
+    if (selectedValid.length) {
+      selectedEmployees = selectedValid.map(sel => {
+        const tech = findTechByIdOrName(sel.techId || sel.id || sel.rawId || sel.techName);
+        return { rawId: sel.rawId || tech.id, techId: tech.id, techName: tech.name };
+      });
+      validCandidates = selectedEmployees;
+      missingCandidates = [];
+      parsedEmployees = selectedEmployees;
+      status = 'Ready';
+      canImportEmployee = true;
+      item.entry = { ...item.entry, techId: selectedEmployees[0].techId, techName: selectedEmployees[0].techName };
+      item.employeeItems = selectedEmployees.map(emp => ({ ...emp, valid: true, isValid: true, id: emp.techId, name: emp.techName }));
+      item.selectedEmployeeIds = selectedEmployees;
+    } else if (manualTech) {
+      const mapped = { rawId: normalized.techId || normalized.techName || manualTech.id, techId: manualTech.id, techName: manualTech.name };
+      selectedEmployees = [mapped];
+      validCandidates = [mapped];
+      missingCandidates = [];
+      parsedEmployees = [mapped];
+      status = 'Ready';
+      canImportEmployee = true;
+      item.entry = { ...item.entry, techId: manualTech.id, techName: manualTech.name };
+      item.employeeItems = [{ ...mapped, valid: true, isValid: true, id: manualTech.id, name: manualTech.name }];
+      item.selectedEmployeeIds = [mapped];
+    }
+
+    if (!item.entry.time) reasons.push(item.dateValidation || 'Missing date');
+    if (!item.entry.pnum) reasons.push('Missing part');
+    else if (!part) reasons.push('Missing part');
+
+    const statusInfo = normalizeImportStatus(item.entry.jobType || normalized.jobType || '');
+    if (!statusInfo.supported) reasons.push('Unsupported status');
+
+    if (!parsedEmployees.length && !(item.entry.techId || item.entry.techName)) reasons.push('Missing employee');
+    else if (parsedEmployees.length && !validCandidates.length) reasons.push('Missing employee');
+    else if (status === 'Needs selection') reasons.push('Needs selection');
+    else if (status === 'Partial match') reasons.push('Partial match');
+
+    item.employeeItems = parsedEmployees;
+    item.selectedEmployeeIds = Array.isArray(item.selectedEmployeeIds) ? item.selectedEmployeeIds : [];
+    item.missingRequired = reasons;
+    item.validationStatus = status;
+
+    if (reasons.length) {
+      item.errors = reasons;
+      item.status = status === 'Needs selection' ? 'Needs selection' : (status === 'Partial match' ? 'Partial match' : (status === 'Missing employee' ? 'Missing employee' : 'Needs review'));
+      item.reason = status === 'Needs selection'
+        ? 'Multiple valid employees found - select one or more'
+        : (status === 'Partial match'
+          ? `Found ${validCandidates.length} valid employee${validCandidates.length === 1 ? '' : 's'} and ${missingCandidates.length} missing ID${missingCandidates.length === 1 ? '' : 's'}`
+          : (status === 'Missing employee' ? 'No valid employee found' : reasons.join(', ')));
+      item.canImport = false;
+      item.severity = canImportEmployee && status === 'Partial match' ? 'warning' : 'error';
+      return;
+    }
+
+    item.status = 'Ready';
+    item.reason = '';
+    item.canImport = true;
+    item.severity = 'ok';
+    item.isSkipped = false;
+  });
+
+  const duplicateIndexes = getProductionImportDuplicateIndexes(next);
+  duplicateIndexes.forEach(index => {
+    const item = next[index];
+    if (item.importAction === 'accepted') return;
+    const sourceText = item.duplicateSource === 'existing-entry'
+      ? 'Duplicate found against existing saved production entry'
+      : 'Duplicate found inside current import preview';
+    markProductionImportDuplicateIgnored(item, sourceText);
+  });
+
+  productionImportState.preview = next;
+  saveProductionImportState();
+  renderImportProduction();
+
+  if (!productionImportState.selectionModalOpened) {
+    const pendingSelection = next.find(item => item.hasMultipleEmployees && item.validationStatus === 'Needs selection' && (!Array.isArray(item.selectedEmployeeIds) || !item.selectedEmployeeIds.length));
+    if (pendingSelection) openEmployeeSelectionModal(pendingSelection.id || pendingSelection.row);
+  }
+
+  refreshProductionImportSummary(next);
+}
+window.validateProductionImportPreview = validateProductionImportPreview;
+
+function mapProductionImportRow(rowIndex, targetField) {
+  const target = getPreviewItemByRow(rowIndex);
+  if (!target) return;
+  const promptLabel = targetField === 'tech' ? 'Employee ID or name' : 'Part number';
+  const value = window.prompt(`Enter ${promptLabel} for row ${rowIndex}:`);
+  if (!value) return;
+  const nextEntry = { ...(target.entry || {}) };
+
+  if (targetField === 'tech') {
+    const tech = findTechByIdOrName(value);
+    if (!tech) { toast('No matching employee found', 'error'); return; }
+    nextEntry.techId = tech.id;
+    nextEntry.techName = tech.name;
+    target.selectedEmployeeIds = [{ rawId: value.trim(), techId: tech.id, techName: tech.name }];
+    target.employeeItems = [{ rawId: value.trim(), techId: tech.id, techName: tech.name, valid: true, isValid: true, id: tech.id, name: tech.name }];
+    target.hasMultipleEmployees = false;
+  } else {
+    const part = findPartByNumber(value);
+    if (!part) { toast('No matching part found', 'error'); return; }
+    nextEntry.pnum = part.num || value.trim();
+    nextEntry.pname = part.name || '';
+    nextEntry.stdHours = part.hours || nextEntry.stdHours || 0;
+    nextEntry.hours = calcPoolHrs(part, nextEntry.jobRole, nextEntry.taskCode);
+  }
+
+  target.entry = nextEntry;
+  target.status = 'Needs review';
+  target.reason = 'Revalidating after user fix';
+  target.canImport = false;
+  target.severity = 'warning';
+  validateProductionImportPreview();
+}
+window.mapProductionImportRow = mapProductionImportRow;
+
+window.selectEmployeeForImport = function(rawId) {
+  const rowIndex = productionImportState.pendingRowIndex;
+  const target = getPreviewItemByRow(rowIndex);
+  if (!target) return;
+  const parsedEmployees = Array.isArray(target.employeeItems) && target.employeeItems.length ? target.employeeItems : parseEmployeeIds(target.rawEmployeeIds || target.entry?.rawEmployeeIds || '');
+  const selectedEmployee = parsedEmployees.find(emp => emp.rawId === rawId || emp.techId === rawId || emp.id === rawId);
+  if (!selectedEmployee || !selectedEmployee.valid) return;
+  target.selectedEmployeeIds = [{ rawId: selectedEmployee.rawId, techId: selectedEmployee.techId, techName: selectedEmployee.techName }];
+  target.employeeItems = [{ ...selectedEmployee, valid: true, isValid: true }];
+  target.hasMultipleEmployees = false;
+  target.entry = { ...target.entry, techId: selectedEmployee.techId, techName: selectedEmployee.techName };
+  closeModal('m-employee-selection');
+  productionImportState.selectionModalOpened = false;
+  validateProductionImportPreview();
+};
+
+window.selectAllEmployeesForImport = function() {
+  const rowIndex = productionImportState.pendingRowIndex;
+  const target = getPreviewItemByRow(rowIndex);
+  if (!target) return;
+  const parsedEmployees = Array.isArray(target.employeeItems) && target.employeeItems.length ? target.employeeItems : parseEmployeeIds(target.rawEmployeeIds || target.entry?.rawEmployeeIds || '');
+  const validEmployees = parsedEmployees.filter(e => e.valid);
+  if (!validEmployees.length) { toast('No valid employees found', 'error'); return; }
+  target.selectedEmployeeIds = validEmployees.map(e => ({ rawId: e.rawId, techId: e.techId, techName: e.techName }));
+  target.employeeItems = validEmployees.map(e => ({ ...e, valid: true, isValid: true }));
+  target.hasMultipleEmployees = validEmployees.length > 1;
+  target.entry = { ...target.entry, techId: validEmployees[0].techId, techName: validEmployees[0].techName };
+  closeModal('m-employee-selection');
+  productionImportState.selectionModalOpened = false;
+  validateProductionImportPreview();
+};
+
+
+// ════════════════════════════════════════════════
+//  PRODUCTION IMPORT ACTION BUTTON VISIBILITY PATCH
+//  Fix: Ready rows no longer show Add Employee/Add Part repair buttons.
+// ════════════════════════════════════════════════
+function productionImportRowIsReady(item) {
+  return item && item.canImport === true && !isProductionImportDuplicateStatus(item) && !productionImportHasBlockingError(item) && !productionImportHasWarning(item) && item.isSkipped !== true;
+}
+function productionImportRowHasEmployeeIssue(item) {
+  if (!item || productionImportRowIsReady(item)) return false;
+  const entry = item.entry || {};
+  const text = prodImportNorm(`${item.status || ''} ${item.reason || ''} ${(item.missingRequired || []).join(' ')}`);
+  return text.includes('missing employee') || text.includes('no valid employee') || text.includes('needs selection') || text.includes('partial match') || (!entry.techId && !entry.techName);
+}
+function productionImportRowHasPartIssue(item) {
+  if (!item || productionImportRowIsReady(item)) return false;
+  const entry = item.entry || {};
+  const text = prodImportNorm(`${item.status || ''} ${item.reason || ''} ${(item.missingRequired || []).join(' ')}`);
+  return text.includes('missing part') || (!entry.pnum || !entry.pname);
+}
+function renderImportProduction() {
+  const body = document.getElementById('prod-import-body'), empty = document.getElementById('prod-import-empty'); if (!body || !empty) return;
+  const rows = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const activeTab = productionImportState.previewTab || 'all';
+  const filteredRows = getFilteredProductionImportPreviewRows(activeTab, rows);
+  refreshProductionImportSummary(rows);
+  empty.style.display = rows.length && !filteredRows.length ? 'block' : rows.length ? 'none' : 'block';
+  if (empty.style.display === 'block') {
+    empty.querySelector('.et').textContent = rows.length ? 'No rows match this filter.' : 'No preview loaded yet.';
+  }
+  body.innerHTML = filteredRows.map((item, idx) => {
+    const entry = item.entry || {};
+    const status = item.status || 'Needs review';
+    const ready = productionImportRowIsReady(item);
+    const duplicate = isProductionImportDuplicateStatus(item);
+    const employeeIssue = productionImportRowHasEmployeeIssue(item);
+    const partIssue = productionImportRowHasPartIssue(item);
+    const badgeClass = duplicate ? 'warn' : (ready ? 'good' : (item.severity === 'warning' || status === 'Warning' || status === 'Ignored by user' || status === 'Ignored once' ? 'warn' : 'error'));
+    const badge = `<span class="prod-import-row-badge ${badgeClass}">${escapeHtml(status)}</span>`;
+    const employeeSummary = item.employeeItems?.length ? item.employeeItems.map(emp => `${emp.valid ? '✓' : '✗'} ${escapeHtml(emp.rawId)}`).join('<br>') : escapeHtml(entry.techName || entry.techId || '—');
+
+    const resolveEmployeeAction = employeeIssue && item.hasMultipleEmployees ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openEmployeeSelectionModal('${item.id || item.row}')">Resolve Employees</button>` : '';
+    const addTechAction = employeeIssue ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openAddTechForImport('${item.id || item.row}')">Add Employee</button>` : '';
+    const mapTechAction = employeeIssue ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRow('${item.id || item.row}','tech')">Map Existing Employee</button>` : '';
+
+    const addPartAction = partIssue ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openAddPartForImport('${item.id || item.row}')">Add Part</button>` : '';
+    const mapPartAction = partIssue ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRow('${item.id || item.row}','part')">Map Existing Part</button>` : '';
+
+    const ignoreOnceAction = !ready ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="ignoreProductionImportRow('${item.id || item.row}','once')">Ignore Once</button>` : '';
+    const ignoreAlwaysAction = !ready ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="ignoreProductionImportRow('${item.id || item.row}','always')">Ignore Always</button>` : '';
+    const skipAction = `<button class="btn bd bsm" style="padding:3px 8px;" onclick="skipProductionImportRow('${item.id || item.row}')">Skip Row</button>`;
+    const duplicateActions = duplicate ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.id || item.row}', 'keep-first')">Keep first</button> <button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.id || item.row}', 'keep-last')">Keep last</button>` : '';
+    const rowActions = `${resolveEmployeeAction}${addTechAction}${mapTechAction}${addPartAction}${mapPartAction}${ignoreOnceAction}${ignoreAlwaysAction}${skipAction}`;
+    const detail = item.reason ? `<div class="prod-import-detail">${escapeHtml(item.reason)}</div>` : '';
+    const hours = Number(entry.hours || 0);
+    return `<tr><td class="mono">${item.row || idx + 1}</td><td class="mono">${String(entry.time || '').slice(0, 10) || '—'}</td>
+      <td>${employeeSummary}</td><td>${escapeHtml(entry.jobRole || '—')}</td>
+      <td class="mono" style="color:var(--blue);">${escapeHtml(entry.taskCode || '—')}</td><td class="mono" style="color:var(--amber);">${escapeHtml(entry.pnum || '—')}</td>
+      <td class="mono">${Number.isFinite(hours) ? hours.toFixed(2) : '0.00'}h</td>
+      <td>${badge}<div class="prod-import-row-actions">${rowActions}</div>${duplicateActions}${detail}</td></tr>`;
+  }).join('') || '';
+}
+window.renderImportProduction = renderImportProduction;
+
+
+// ════════════════════════════════════════════════
+//  PRODUCTION IMPORT DEFAULT CLEANUP + DEFAULT MAPPINGS PATCH
+//  1) Blank WP ID rows are hidden/removed from preview by default.
+//  2) Rows with missing employee IDs are hidden/removed from preview by default.
+//  3) Remove All Duplicates physically removes duplicate rows from preview.
+//  4) One correction applies to all identical cases in current preview.
+//  5) Part/employee mapping can be saved as default for future imports.
+// ════════════════════════════════════════════════
+const PROD_IMPORT_DEFAULT_MAP_KEY = 'protrack-production-import-default-maps-v1';
+function getProductionImportDefaultMaps() {
+  try {
+    const raw = localStorage.getItem(PROD_IMPORT_DEFAULT_MAP_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      parts: parsed && parsed.parts && typeof parsed.parts === 'object' ? parsed.parts : {},
+      employees: parsed && parsed.employees && typeof parsed.employees === 'object' ? parsed.employees : {}
+    };
+  } catch (e) {
+    return { parts: {}, employees: {} };
+  }
+}
+function saveProductionImportDefaultMaps(maps) {
+  try { localStorage.setItem(PROD_IMPORT_DEFAULT_MAP_KEY, JSON.stringify(maps || { parts: {}, employees: {} })); } catch (e) {}
+}
+function productionImportMapKey(value) {
+  return String(value || '').trim().toLowerCase();
+}
+function getImportTaskCodeFromRawRow(row) {
+  if (!row) return '';
+  return cleanImportField(row['WP ID'] || row.WP_ID || row['Work Package ID'] || row.WPID || row['Work Package'] || row.WP || row.TaskCode || row['Task Code'] || '');
+}
+function getImportPartKeyFromItem(item) {
+  const entry = item?.entry || {};
+  return cleanImportField(item?.rawPartNumber || entry.importedPartNumber || entry.sourcePnum || entry.pnum || '');
+}
+function getImportEmployeeKeysFromItem(item) {
+  const raw = cleanImportField(item?.rawEmployeeIds || item?.entry?.rawEmployeeIds || item?.entry?.techId || item?.entry?.techName || '');
+  const keys = raw ? raw.split(/[;,]+/).map(v => v.trim()).filter(Boolean) : [];
+  if (item?.employeeItems?.length) item.employeeItems.forEach(emp => { if (emp.rawId) keys.push(emp.rawId); });
+  return [...new Set(keys.filter(Boolean))];
+}
+function applyProductionImportDefaultMappingsToItem(item) {
+  if (!item) return item;
+  const maps = getProductionImportDefaultMaps();
+  item.entry = { ...(item.entry || {}) };
+
+  const partRaw = getImportPartKeyFromItem(item);
+  const partMappedTo = maps.parts[productionImportMapKey(partRaw)] || maps.parts[productionImportMapKey(item.entry.pnum)];
+  if (partMappedTo) {
+    const part = findPartByNumber(partMappedTo);
+    if (part) {
+      item.entry.pnum = part.num || partMappedTo;
+      item.entry.pname = part.name || item.entry.pname || '';
+      item.entry.stdHours = part.hours || item.entry.stdHours || 0;
+      item.entry.hours = calcPoolHrs(part, item.entry.jobRole, item.entry.taskCode);
+      item.defaultMappedPart = true;
+      item.reason = item.reason && item.reason.includes('Missing part') ? '' : item.reason;
+    }
+  }
+
+  const employeeKeys = getImportEmployeeKeysFromItem(item);
+  const employeeMappedTo = employeeKeys.map(k => maps.employees[productionImportMapKey(k)]).find(Boolean);
+  if (employeeMappedTo) {
+    const tech = findTechByIdOrName(employeeMappedTo);
+    if (tech) {
+      item.entry.techId = tech.id;
+      item.entry.techName = tech.name;
+      item.selectedEmployeeIds = [{ rawId: employeeKeys[0] || tech.id, techId: tech.id, techName: tech.name }];
+      item.employeeItems = [{ rawId: employeeKeys[0] || tech.id, techId: tech.id, techName: tech.name, valid: true, isValid: true, id: tech.id, name: tech.name }];
+      item.hasMultipleEmployees = false;
+      item.defaultMappedEmployee = true;
+    }
+  }
+  return item;
+}
+function productionImportEmployeeIsResolvable(item) {
+  applyProductionImportDefaultMappingsToItem(item);
+  const entry = item?.entry || {};
+  if (findTechByIdOrName(entry.techId) || findTechByIdOrName(entry.techName)) return true;
+  const employeeKeys = getImportEmployeeKeysFromItem(item);
+  if (!employeeKeys.length) return false;
+  return employeeKeys.every(key => !!findTechByIdOrName(key));
+}
+function productionImportShouldHideBeforePreview(item, rawRow) {
+  const taskCode = cleanImportField(item?.entry?.taskCode || getImportTaskCodeFromRawRow(rawRow));
+  if (!taskCode) return { hide: true, reason: 'Blank WP ID / Column A ignored by default' };
+  if (!productionImportEmployeeIsResolvable(item)) return { hide: true, reason: 'Employee ID not found - row removed by default' };
+  return { hide: false, reason: '' };
+}
+function recordProductionImportHiddenRows(hiddenRows) {
+  productionImportState.hiddenSkipped = Array.isArray(hiddenRows) ? hiddenRows : [];
+  const el = document.getElementById('prod-import-skipped');
+  if (!el) return;
+  if (!productionImportState.hiddenSkipped.length) { el.innerHTML = ''; return; }
+  const count = productionImportState.hiddenSkipped.length;
+  const preview = productionImportState.hiddenSkipped.slice(0, 8).map(s => `<tr><td class="mono">${escapeHtml(String(s.row || '—'))}</td><td>${escapeHtml(s.reason || '')}</td></tr>`).join('');
+  el.innerHTML = `<div style="margin-top:8px;color:var(--tx2);"><strong>${count} row${count === 1 ? '' : 's'} hidden before preview</strong> because WP ID was blank or employee ID was not found.</div>
+    <div style="margin-top:6px;max-height:180px;overflow:auto;border:1px solid var(--bdr);padding:8px;border-radius:8px;background:var(--inp-bg)">
+      <table style="width:100%;font-size:13px;"><thead><tr><th style="text-align:left;width:70px">Row</th><th style="text-align:left">Reason</th></tr></thead><tbody>${preview}</tbody></table>
+      ${count > 8 ? `<div style="margin-top:6px;color:var(--tx3);">+ ${count - 8} more hidden row${count - 8 === 1 ? '' : 's'}</div>` : ''}
+    </div>`;
+}
+async function previewProductionImport(input) {
+  const file = input?.files?.[0]; if (!file) return;
+  if (!window.XLSX) { toast('Import library not loaded', 'error'); return; }
+  return runWithImportLoading('Preparing production preview...', async () => {
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = window.XLSX.read(buf, { type: 'array', cellDates: true });
+      const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
+      const rawRows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+      const preview = [];
+      const hiddenRows = [];
+
+      rows.forEach((row, idx) => {
+        const excelRowNumber = idx + 2;
+        const rawRow = rawRows[idx + 1] || [];
+        const wpId = getImportTaskCodeFromRawRow(row);
+        if (!wpId) {
+          hiddenRows.push({ row: excelRowNumber, reason: 'Blank WP ID / Column A ignored by default' });
+          return;
+        }
+        const built = buildEntriesFromRow(row, excelRowNumber, rawRow) || [];
+        if (!built.length) {
+          hiddenRows.push({ row: excelRowNumber, reason: 'Missing required row data' });
+          return;
+        }
+        built.forEach(item => {
+          item.rawPartNumber = item.rawPartNumber || item.entry?.pnum || cleanImportField(row['OEM P/N'] || row.OEM_PN || row['Part Number'] || row.PartNum || row.PN || row.Part || row['Part #'] || '');
+          applyProductionImportDefaultMappingsToItem(item);
+          const hidden = productionImportShouldHideBeforePreview(item, row);
+          if (hidden.hide) hiddenRows.push({ row: item.row || excelRowNumber, reason: hidden.reason });
+          else preview.push(item);
+        });
+      });
+
+      productionImportState = { fileName: file.name, rows, preview, autoSkipEmpty: true, previewTab: 'all', pendingRowIndex: null, lastAddedTechId: '', lastAddedPartNum: '', lastAddedPartName: '', ignoreAlways: [], ignoredMissingEmployeeIds: [], selectionModalOpened: false, hiddenSkipped: hiddenRows };
+      saveProductionImportState();
+      if (document.getElementById('prod-stepper')) document.getElementById('prod-stepper').style.display = '';
+      setProdImportStep('uploaded');
+      validateProductionImportPreview();
+      recordProductionImportHiddenRows(hiddenRows);
+      openModal('m-prod-import-help');
+      toast(`Preview ready: ${preview.length} row${preview.length === 1 ? '' : 's'}${hiddenRows.length ? `, ${hiddenRows.length} hidden` : ''}`);
+    } catch (err) { console.error(err); toast('Preview failed', 'error'); }
+    finally { if (input) input.value = ''; }
+  });
+}
+window.previewProductionImport = previewProductionImport;
+window.handleProdImportUpload = previewProductionImport;
+function applyDefaultMapToAllPreviewRows(type, sourceValue, targetValue) {
+  const sourceKey = productionImportMapKey(sourceValue);
+  if (!sourceKey || !targetValue) return 0;
+  let changed = 0;
+  const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  preview.forEach(item => {
+    if (type === 'part') {
+      const itemKey = productionImportMapKey(getImportPartKeyFromItem(item));
+      if (itemKey === sourceKey) {
+        const part = findPartByNumber(targetValue);
+        if (part) {
+          item.entry = { ...(item.entry || {}), pnum: part.num || targetValue, pname: part.name || '', stdHours: part.hours || 0, hours: calcPoolHrs(part, item.entry?.jobRole, item.entry?.taskCode) };
+          changed++;
+        }
+      }
+    } else {
+      const keys = getImportEmployeeKeysFromItem(item).map(productionImportMapKey);
+      if (keys.includes(sourceKey)) {
+        const tech = findTechByIdOrName(targetValue);
+        if (tech) {
+          item.entry = { ...(item.entry || {}), techId: tech.id, techName: tech.name };
+          item.selectedEmployeeIds = [{ rawId: sourceValue, techId: tech.id, techName: tech.name }];
+          item.employeeItems = [{ rawId: sourceValue, techId: tech.id, techName: tech.name, valid: true, isValid: true, id: tech.id, name: tech.name }];
+          item.hasMultipleEmployees = false;
+          changed++;
+        }
+      }
+    }
+  });
+  return changed;
+}
+function saveProductionImportDefaultMap(type, sourceValue, targetValue) {
+  const maps = getProductionImportDefaultMaps();
+  if (type === 'part') maps.parts[productionImportMapKey(sourceValue)] = targetValue;
+  else maps.employees[productionImportMapKey(sourceValue)] = targetValue;
+  saveProductionImportDefaultMaps(maps);
+  return applyDefaultMapToAllPreviewRows(type, sourceValue, targetValue);
+}
+function mapProductionImportRow(rowIndex, targetField, saveDefault = false) {
+  const target = getPreviewItemByRow(rowIndex);
+  if (!target) return;
+  const isTech = targetField === 'tech';
+  const promptLabel = isTech ? 'existing Employee ID or name' : 'existing Part number';
+  const value = window.prompt(`Enter ${promptLabel} for row ${rowIndex}:`);
+  if (!value) return;
+  const nextEntry = { ...(target.entry || {}) };
+
+  if (isTech) {
+    const tech = findTechByIdOrName(value);
+    if (!tech) { toast('No matching employee found', 'error'); return; }
+    const sourceEmployee = getImportEmployeeKeysFromItem(target)[0] || nextEntry.techId || nextEntry.techName || value.trim();
+    if (saveDefault || window.confirm(`Make this default mapping for employee "${sourceEmployee}" to "${tech.name || tech.id}" for future imports?`)) {
+      const changed = saveProductionImportDefaultMap('employee', sourceEmployee, tech.id);
+      toast(`Default employee mapping saved. Updated ${changed} row${changed === 1 ? '' : 's'}.`);
+    } else {
+      applyDefaultMapToAllPreviewRows('employee', sourceEmployee, tech.id);
+      toast('Employee mapping applied to matching rows in this preview');
+    }
+  } else {
+    const part = findPartByNumber(value);
+    if (!part) { toast('No matching part found', 'error'); return; }
+    const sourcePart = getImportPartKeyFromItem(target) || nextEntry.pnum || value.trim();
+    if (saveDefault || window.confirm(`Make this default mapping for part number "${sourcePart}" to "${part.num || value}" for future imports?`)) {
+      const changed = saveProductionImportDefaultMap('part', sourcePart, part.num || value.trim());
+      toast(`Default part mapping saved. Updated ${changed} row${changed === 1 ? '' : 's'}.`);
+    } else {
+      applyDefaultMapToAllPreviewRows('part', sourcePart, part.num || value.trim());
+      toast('Part mapping applied to matching rows in this preview');
+    }
+  }
+
+  validateProductionImportPreview();
+}
+window.mapProductionImportRow = mapProductionImportRow;
+window.mapProductionImportRowDefault = function(rowIndex, targetField) {
+  return mapProductionImportRow(rowIndex, targetField, true);
+};
+function applyBulkDuplicateResolution(action = 'remove') {
+  const permKey = action === 'accept' ? 'acceptduplicates' : 'removeduplicates';
+  if (!canI('importproduction', permKey)) { toast('You do not have permission to ' + (action === 'accept' ? 'accept' : 'remove') + ' duplicates in bulk', 'error'); return; }
+  validateProductionImportPreview();
+  const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  const duplicates = preview.filter(item => isProductionImportDuplicateStatus(item));
+  if (!duplicates.length) { toast('No duplicate rows detected', 'info'); return; }
+  if (action === 'remove') {
+    productionImportState.preview = preview.filter(item => !isProductionImportDuplicateStatus(item));
+    saveProductionImportState();
+    renderImportProduction();
+    refreshProductionImportSummary(productionImportState.preview);
+    toast(`Removed ${duplicates.length} duplicate row${duplicates.length === 1 ? '' : 's'} from preview`);
+    return;
+  }
+  duplicates.forEach(item => {
+    item.status = 'Ready';
+    item.reason = 'Duplicate accepted by authorized user';
+    item.canImport = true;
+    item.severity = 'ok';
+    item.isDuplicate = false;
+    item.isSkipped = false;
+    item.importAction = 'accepted';
+  });
+  productionImportState.preview = preview;
+  saveProductionImportState();
+  renderImportProduction();
+  refreshProductionImportSummary(preview);
+  toast('Duplicate rows accepted');
+}
+window.applyBulkDuplicateResolution = applyBulkDuplicateResolution;
+function renderImportProduction() {
+  const body = document.getElementById('prod-import-body'), empty = document.getElementById('prod-import-empty'); if (!body || !empty) return;
+  const rows = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  rows.forEach(applyProductionImportDefaultMappingsToItem);
+  const activeTab = productionImportState.previewTab || 'all';
+  const filteredRows = getFilteredProductionImportPreviewRows(activeTab, rows);
+  refreshProductionImportSummary(rows);
+  recordProductionImportHiddenRows(productionImportState.hiddenSkipped || []);
+  empty.style.display = rows.length && !filteredRows.length ? 'block' : rows.length ? 'none' : 'block';
+  if (empty.style.display === 'block') empty.querySelector('.et').textContent = rows.length ? 'No rows match this filter.' : 'No preview loaded yet.';
+  body.innerHTML = filteredRows.map((item, idx) => {
+    const entry = item.entry || {};
+    const status = item.status || 'Needs review';
+    const ready = productionImportRowIsReady(item);
+    const duplicate = isProductionImportDuplicateStatus(item);
+    const employeeIssue = productionImportRowHasEmployeeIssue(item);
+    const partIssue = productionImportRowHasPartIssue(item);
+    const badgeClass = duplicate ? 'warn' : (ready ? 'good' : (item.severity === 'warning' || status === 'Warning' || status === 'Ignored by user' || status === 'Ignored once' ? 'warn' : 'error'));
+    const badge = `<span class="prod-import-row-badge ${badgeClass}">${escapeHtml(status)}</span>`;
+    const employeeSummary = item.employeeItems?.length ? item.employeeItems.map(emp => `${emp.valid ? '✓' : '✗'} ${escapeHtml(emp.rawId)}`).join('<br>') : escapeHtml(entry.techName || entry.techId || '—');
+    const resolveEmployeeAction = employeeIssue && item.hasMultipleEmployees ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openEmployeeSelectionModal('${item.id || item.row}')">Resolve Employees</button>` : '';
+    const addTechAction = employeeIssue ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openAddTechForImport('${item.id || item.row}')">Add Employee</button>` : '';
+    const mapTechAction = employeeIssue ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRow('${item.id || item.row}','tech')">Map Existing Employee</button>` : '';
+    const mapTechDefaultAction = employeeIssue ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRowDefault('${item.id || item.row}','tech')">Map Employee & Save Default</button>` : '';
+    const addPartAction = partIssue ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openAddPartForImport('${item.id || item.row}')">Add Part</button>` : '';
+    const mapPartAction = partIssue ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRow('${item.id || item.row}','part')">Map Existing Part</button>` : '';
+    const mapPartDefaultAction = partIssue ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRowDefault('${item.id || item.row}','part')">Map Part & Save Default</button>` : '';
+    const ignoreOnceAction = !ready ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="ignoreProductionImportRow('${item.id || item.row}','once')">Ignore Once</button>` : '';
+    const ignoreAlwaysAction = !ready ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="ignoreProductionImportRow('${item.id || item.row}','always')">Ignore Always</button>` : '';
+    const skipAction = `<button class="btn bd bsm" style="padding:3px 8px;" onclick="skipProductionImportRow('${item.id || item.row}')">Skip Row</button>`;
+    const duplicateActions = duplicate ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.id || item.row}', 'keep-first')">Keep first</button> <button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.id || item.row}', 'keep-last')">Keep last</button>` : '';
+    const rowActions = `${resolveEmployeeAction}${addTechAction}${mapTechAction}${mapTechDefaultAction}${addPartAction}${mapPartAction}${mapPartDefaultAction}${ignoreOnceAction}${ignoreAlwaysAction}${skipAction}`;
+    const detail = item.reason ? `<div class="prod-import-detail">${escapeHtml(item.reason)}</div>` : '';
+    const mappingNote = (item.defaultMappedPart || item.defaultMappedEmployee) ? `<div class="prod-import-detail" style="color:var(--green);">Default mapping applied</div>` : '';
+    const hours = Number(entry.hours || 0);
+    return `<tr><td class="mono">${item.row || idx + 1}</td><td class="mono">${String(entry.time || '').slice(0, 10) || '—'}</td>
+      <td>${employeeSummary}</td><td>${escapeHtml(entry.jobRole || '—')}</td>
+      <td class="mono" style="color:var(--blue);">${escapeHtml(entry.taskCode || '—')}</td><td class="mono" style="color:var(--amber);">${escapeHtml(entry.pnum || '—')}</td>
+      <td class="mono">${Number.isFinite(hours) ? hours.toFixed(2) : '0.00'}h</td>
+      <td>${badge}<div class="prod-import-row-actions">${rowActions}</div>${duplicateActions}${detail}${mappingNote}</td></tr>`;
+  }).join('') || '';
+}
+window.renderImportProduction = renderImportProduction;
+
+
+// ════════════════════════════════════════════════
+//  DEPARTMENT ACCESS + IMPORT PREVIEW LIFETIME PATCH
+//  1) Manage Technician, Parts, and inventory/shop pages are scoped by role department access.
+//  2) Department selectors show only departments allowed for the current role.
+//  3) Imported preview stays available until Clear Preview or Confirm Import.
+//     After Confirm Import succeeds, preview is cleared automatically.
+// ════════════════════════════════════════════════
+function getAllowedManagedDepartments() {
+  const allDeptIds = (Array.isArray(departments) ? departments : []).map(d => d.id).filter(Boolean);
+  if (CR === 'dev') return allDeptIds;
+  if (CR === 'mgr') {
+    const assigned = Array.isArray(CU?.departments) ? CU.departments.filter(Boolean) : [];
+    return assigned.length ? assigned : allDeptIds;
+  }
+  if (CU?.department) return [CU.department];
+  return [];
+}
+function canAccessManagedDepartment(deptId) {
+  if (CR === 'dev') return true;
+  const scope = getAllowedManagedDepartments();
+  return !!deptId && scope.includes(deptId);
+}
+function firstAllowedManagedDepartment() {
+  return getAllowedManagedDepartments()[0] || departments[0]?.id || '';
+}
+function scopedDeptOptionsHtml(selected = '', includeAll = false) {
+  const allowed = getAllowedManagedDepartments();
+  const visible = (Array.isArray(departments) ? departments : []).filter(d => CR === 'dev' || allowed.includes(d.id));
+  const allOpt = includeAll && (CR === 'dev' || CR === 'mgr') ? '<option value="">All Departments</option>' : '';
+  const opts = visible.map(d => `<option value="${d.id}" ${d.id === selected ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('');
+  return allOpt + opts;
+}
+function enforceScopedDeptValue(selectEl, includeAll = false) {
+  if (!selectEl) return;
+  const previous = selectEl.value;
+  selectEl.innerHTML = scopedDeptOptionsHtml(previous, includeAll);
+  const allowed = getAllowedManagedDepartments();
+  if (includeAll && (CR === 'dev' || CR === 'mgr') && previous === '') {
+    selectEl.value = '';
+    return;
+  }
+  if (previous && allowed.includes(previous)) selectEl.value = previous;
+  else selectEl.value = firstAllowedManagedDepartment();
+}
+function syncAllDeptDropdowns() {
+  document.querySelectorAll('select[data-dept-select]').forEach(sel => enforceScopedDeptValue(sel, false));
+  enforceScopedDeptValue(document.getElementById('mt-dept'), false);
+  enforceScopedDeptValue(document.getElementById('mp-dept'), false);
+  enforceScopedDeptValue(document.getElementById('ml-dept'), false);
+  enforceScopedDeptValue(document.getElementById('mc-dept'), false);
+  enforceScopedDeptValue(document.getElementById('sp-dept'), false);
+  enforceScopedDeptValue(document.getElementById('sys-dept-filter'), true);
+  enforceScopedDeptValue(document.getElementById('at-dept-filter'), true);
+  enforceScopedDeptValue(document.getElementById('ap-dept-filter'), true);
+}
+window.syncAllDeptDropdowns = syncAllDeptDropdowns;
+function normalizeExistingPartDepartment(part) {
+  if (!part) return '';
+  return part.department || part.dept || part.shop || '';
+}
+function renderTechs() {
+  syncAllDeptDropdowns();
+  const q = (document.getElementById('at-q')?.value || '').toLowerCase();
+  const df = document.getElementById('at-dept-filter')?.value || '';
+  const allowed = getAllowedManagedDepartments();
+  let f = techs.filter(t => !q || String(t.name || '').toLowerCase().includes(q) || String(t.id || '').toLowerCase().includes(q));
+  if (df && (CR === 'dev' || CR === 'mgr')) f = f.filter(t => t.department === df);
+  else if (CR !== 'dev') f = f.filter(t => t.department && allowed.includes(t.department));
+  const tbody = document.getElementById('at-body');
+  if (tbody) {
+    tbody.innerHTML = f.map(t => {
+      const mt = t.monthlyTarget || 160;
+      const rowAllowed = CR === 'dev' || canAccessManagedDepartment(t.department);
+      return `<tr><td><div style="width:34px;height:34px;border-radius:50%;overflow:hidden;">${avatarHtml(t.id, t.name, 34)}</div></td>
+        <td class="mono" style="color:var(--blue);">${escapeHtml(t.id || '')}</td><td style="font-weight:600;">${sanitize(t.name || '')}</td>
+        <td>${deptLabel(t.department)}</td>
+        <td class="mono"><span class="bdg bblu">${mt}h</span></td><td class="mono">${getWeeklyTgt(mt).toFixed(1)}Hrs/wk</td><td class="mono">${getDailyTgt(mt).toFixed(1)}Hrs/day</td>
+        <td><span class="bdg ${t.status === 'active' ? 'bgr' : 'bgray'}">${escapeHtml(t.status || 'active')}</span>${t.underSupervision ? '<span class="bdg bgr" style="margin-left:4px;font-size:9px;">👁 UnderSup</span>' : ''}</td>
+        <td><div style="display:flex;gap:5px;">${rowAllowed && canI('techs','edit') ? `<button class="btn bo bsm" onclick="openEditTech('${escapeHtml(t.id)}')">✏️</button>` : ''}${rowAllowed && canI('techs','delete') ? `<button class="btn bd bsm" onclick="delTech('${escapeHtml(t.id)}')">🗑</button>` : ''}</div></td></tr>`;
+    }).join('') || '<tr><td colspan="9" class="empty">No technicians in your department scope</td></tr>';
+  }
+}
+window.renderTechs = renderTechs;
+window.openAddTech = function () {
+  if (!canI('techs', 'create')) { toast('Not allowed', 'error'); return; }
+  editTechId = null;
+  clearTechForm();
+  enforceScopedDeptValue(document.getElementById('mt-dept'), false);
+  stxt('mt-title', 'Add Technician');
+  openModal('m-tech');
+};
+window.openEditTech = function (id) {
+  const t = techs.find(x => x.id === id); if (!t) return;
+  if (!canAccessManagedDepartment(t.department)) { toast('You can edit technicians only in your department scope', 'error'); return; }
+  editTechId = id;
+  sv('mt-id', t.id); sv('mt-name', t.name); sv('mt-target', t.monthlyTarget || 160); sv('mt-pwd', t.password || '');
+  const stEl = document.getElementById('mt-status'); if (stEl) stEl.value = t.status || 'active';
+  enforceScopedDeptValue(document.getElementById('mt-dept'), false);
+  const deptEl = document.getElementById('mt-dept'); if (deptEl) deptEl.value = t.department || firstAllowedManagedDepartment();
+  const roleKey = getRoleAccessKeyForTech(t); const ra = document.getElementById('mt-role-access'); if (ra) ra.value = roleKey;
+  const pic = getUserPhoto(id); const pm = document.getElementById('mt-pic-prev'), pp = document.getElementById('mt-pic-ph');
+  if (pic && pm) { pm.src = pic; pm.style.display = 'block'; } if (pp) pp.style.display = pic ? 'none' : 'block';
+  stxt('mt-title', 'Edit Technician'); openModal('m-tech');
+};
+function clearTechForm() {
+  ['mt-id', 'mt-name', 'mt-target', 'mt-pwd'].forEach(id => sv(id, ''));
+  const stEl = document.getElementById('mt-status'); if (stEl) stEl.value = 'active';
+  const ra = document.getElementById('mt-role-access'); if (ra) ra.value = 'tech';
+  enforceScopedDeptValue(document.getElementById('mt-dept'), false);
+  const pm = document.getElementById('mt-pic-prev'), pp = document.getElementById('mt-pic-ph');
+  if (pm) { pm.src = ''; pm.style.display = 'none'; } if (pp) pp.style.display = 'block';
+}
+window.saveTech = async function () {
+  const isNew = !editTechId;
+  if (isNew && !canI('techs', 'create')) { toast('Not allowed', 'error'); return; }
+  if (!isNew && !canI('techs', 'edit')) { toast('Not allowed', 'error'); return; }
+  const id = sanitize(document.getElementById('mt-id')?.value), name = sanitize(document.getElementById('mt-name')?.value);
+  if (!id || !name) { toast('ID and Name required', 'error'); return; }
+  let dept = document.getElementById('mt-dept')?.value || firstAllowedManagedDepartment();
+  if (CR !== 'dev' && !canAccessManagedDepartment(dept)) dept = firstAllowedManagedDepartment();
+  if (!dept || !canAccessManagedDepartment(dept)) { toast('No allowed department available', 'error'); return; }
+  const target = sanitizeNum(document.getElementById('mt-target')?.value) || 160;
+  const status = document.getElementById('mt-status')?.value, pwd = sanitize(document.getElementById('mt-pwd')?.value) || '';
+  const roleAccessKey = normalizeRoleAccessKey(document.getElementById('mt-role-access')?.value || 'tech');
+  const allowedRoles = ROLE_ACCESS_PROFILES[roleAccessKey].slice();
+  const payload = { id, name, monthlyTarget: target, status, password: pwd, department: dept, underSupervision: allowedRoles.includes('Under Supervision'), roleAccess: roleAccessKey, allowedRoles };
+  try {
+    if (editTechId) {
+      const idx = techs.findIndex(t => t.id === editTechId);
+      if (idx < 0 || !canAccessManagedDepartment(techs[idx].department)) { toast('Not allowed for this department', 'error'); return; }
+      const u = { ...techs[idx], ...payload };
+      await DB.upsert('technicians', u); techs[idx] = u; if (CU && CU.id === editTechId) CU = u;
+      toast('Updated');
+    } else {
+      if (techs.find(t => t.id === id)) { toast('ID exists', 'error'); return; }
+      const saved = await DB.upsert('technicians', payload); techs.push(saved); if (productionImportState) productionImportState.lastAddedTechId = saved?.id || id; toast('Added');
+    }
+    const pf = document.getElementById('mt-pic')?.files[0];
+    if (pf) { const r = new FileReader(); r.onload = async e => await savePic(id, e.target.result); r.readAsDataURL(pf); }
+    closeModal('m-tech'); renderTechs(); syncAllDeptDropdowns();
+    if (typeof productionImportState.importCallback === 'function') { productionImportState.importCallback(); productionImportState.importCallback = null; }
+  } catch (err) { toast('Save failed: ' + err.message, 'error'); }
+};
+window.delTech = async function (id) {
+  if (!canI('techs', 'delete')) { toast('Not allowed', 'error'); return; }
+  const t = techs.find(x => x.id === id);
+  if (!t || !canAccessManagedDepartment(t.department)) { toast('Not allowed for this department', 'error'); return; }
+  if (!confirm('Delete this technician?')) return;
+  try { await DB.remove('technicians', id); techs = techs.filter(t => t.id !== id); renderTechs(); toast('Deleted'); } catch (e) { toast('Delete failed', 'error'); }
+};
+function renderParts() {
+  syncAllDeptDropdowns();
+  const q = (document.getElementById('ap-q')?.value || '').toLowerCase();
+  const df = document.getElementById('ap-dept-filter')?.value || '';
+  const allowed = getAllowedManagedDepartments();
+  let f = parts.filter(p => !q || String(p.name || '').toLowerCase().includes(q) || String(p.num || '').toLowerCase().includes(q));
+  if (df && (CR === 'dev' || CR === 'mgr')) f = f.filter(p => normalizeExistingPartDepartment(p) === df);
+  else if (CR !== 'dev') f = f.filter(p => normalizeExistingPartDepartment(p) && allowed.includes(normalizeExistingPartDepartment(p)));
+  const tbody = document.getElementById('ap-body');
+  if (tbody) tbody.innerHTML = f.map(p => {
+    const dept = normalizeExistingPartDepartment(p);
+    const rowAllowed = CR === 'dev' || canAccessManagedDepartment(dept);
+    return `<tr><td style="font-weight:600;">${sanitize(p.name || '')}</td><td>${deptLabel(dept)}</td><td class="mono">${p.ata || '—'}</td>
+    <td class="mono" style="color:var(--amber);">${escapeHtml(p.num || '')}</td><td><span class="bdg bblu">${p.hours || 0}h</span></td>
+    <td><div style="display:flex;gap:5px;">${rowAllowed && canI('parts','edit') ? `<button class="btn bo bsm" onclick="openEditPart('${escapeHtml(p.id)}')">✏️</button>` : ''}${rowAllowed && canI('parts','delete') ? `<button class="btn bd bsm" onclick="delPart('${escapeHtml(p.id)}')">🗑</button>` : ''}</div></td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="empty">No parts in your department scope</td></tr>';
+}
+window.renderParts = renderParts;
+window.openAddPart = function () {
+  if (!canI('parts', 'create')) { toast('Not allowed', 'error'); return; }
+  editPartId = null;
+  ['mp-name', 'mp-ata', 'mp-num', 'mp-hours'].forEach(id => sv(id, ''));
+  enforceScopedDeptValue(document.getElementById('mp-dept'), false);
+  stxt('mp-title', 'Add Part');
+  openModal('m-part');
+};
+window.openEditPart = function (id) {
+  const p = parts.find(x => x.id === id); if (!p) return;
+  const dept = normalizeExistingPartDepartment(p);
+  if (!canAccessManagedDepartment(dept)) { toast('You can edit parts only in your department scope', 'error'); return; }
+  editPartId = id;
+  sv('mp-name', p.name); sv('mp-ata', p.ata || ''); sv('mp-num', p.num); sv('mp-hours', p.hours);
+  enforceScopedDeptValue(document.getElementById('mp-dept'), false);
+  const deptEl = document.getElementById('mp-dept'); if (deptEl) deptEl.value = dept || firstAllowedManagedDepartment();
+  stxt('mp-title', 'Edit Part'); openModal('m-part');
+};
+window.savePart = async function () {
+  const isNew = !editPartId;
+  if (isNew && !canI('parts', 'create')) { toast('Not allowed', 'error'); return; }
+  if (!isNew && !canI('parts', 'edit')) { toast('Not allowed', 'error'); return; }
+  const name = sanitize(document.getElementById('mp-name')?.value), num = sanitize(document.getElementById('mp-num')?.value), hours = sanitizeNum(document.getElementById('mp-hours')?.value);
+  if (!name || !num || !hours) { toast('All fields required', 'error'); return; }
+  let dept = document.getElementById('mp-dept')?.value || firstAllowedManagedDepartment();
+  if (CR !== 'dev' && !canAccessManagedDepartment(dept)) dept = firstAllowedManagedDepartment();
+  if (!dept || !canAccessManagedDepartment(dept)) { toast('No allowed department available', 'error'); return; }
+  const partPayload = { name, num, hours, ata: sanitize(document.getElementById('mp-ata')?.value) || '', desc: name, department: dept };
+  try {
+    if (editPartId) {
+      const idx = parts.findIndex(x => x.id === editPartId);
+      if (idx < 0 || !canAccessManagedDepartment(normalizeExistingPartDepartment(parts[idx]))) { toast('Not allowed for this department', 'error'); return; }
+      partPayload.id = editPartId;
+      const u = { ...parts[idx], ...partPayload };
+      await DB.upsert('parts', u); parts[idx] = u; toast('Updated');
+    } else {
+      const saved = await DB.upsert('parts', partPayload); parts.push(saved); if (productionImportState) { productionImportState.lastAddedPartNum = saved?.num || num; productionImportState.lastAddedPartName = saved?.name || name; } toast('Added');
+    }
+    closeModal('m-part'); renderParts(); syncAllDeptDropdowns();
+    if (typeof productionImportState.importCallback === 'function') { productionImportState.importCallback(); productionImportState.importCallback = null; }
+  } catch (err) { toast('Save failed: ' + err.message, 'error'); }
+};
+window.delPart = async function (id) {
+  if (!canI('parts', 'delete')) { toast('Not allowed', 'error'); return; }
+  const p = parts.find(x => x.id === id);
+  if (!p || !canAccessManagedDepartment(normalizeExistingPartDepartment(p))) { toast('Not allowed for this department', 'error'); return; }
+  if (!confirm('Delete?')) return;
+  await DB.remove('parts', id); parts = parts.filter(p => p.id !== id); renderParts(); toast('Deleted');
+};
+function scopeShopPerformanceRows(rows) {
+  const allowed = getAllowedManagedDepartments();
+  if (CR === 'dev') return rows;
+  return (Array.isArray(rows) ? rows : []).filter(r => r.dept && allowed.includes(r.dept));
+}
+const _renderShopReport_original = typeof renderShopReport === 'function' ? renderShopReport : null;
+if (_renderShopReport_original) {
+  window.renderShopReport = function() {
+    syncAllDeptDropdowns();
+    return _renderShopReport_original.apply(this, arguments);
+  };
+}
+const _saveShopPerformance_original = typeof saveShopPerformance === 'function' ? saveShopPerformance : null;
+if (_saveShopPerformance_original) {
+  window.saveShopPerformance = function() {
+    const dept = document.getElementById('sp-dept')?.value || '';
+    if (!canAccessManagedDepartment(dept)) { toast('Not allowed for this department', 'error'); return; }
+    return _saveShopPerformance_original.apply(this, arguments);
+  };
+}
+const _onSpDeptChange_original = typeof onSpDeptChange === 'function' ? onSpDeptChange : null;
+if (_onSpDeptChange_original) {
+  window.onSpDeptChange = function() {
+    const sel = document.getElementById('sp-dept');
+    if (sel && !canAccessManagedDepartment(sel.value)) sel.value = firstAllowedManagedDepartment();
+    return _onSpDeptChange_original.apply(this, arguments);
+  };
+}
+async function commitProductionImport() {
+  if (!canI('importproduction', 'import')) { toast('Not allowed', 'error'); return; }
+  validateProductionImportPreview();
+  const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  if (!preview.length) { toast('Upload a file first', 'error'); return; }
+  const readyRows = getFilteredProductionImportPreviewRows('ready', preview);
+  if (!readyRows.length) { toast('No clean Ready rows are available. Resolve errors, warnings, or duplicates before confirming.', 'error'); return; }
+  return runWithImportLoading('Importing production...', async () => {
+    try {
+      let created = 0, skipped = 0; const skippedList = [];
+      for (const item of preview) {
+        const normalized = normalizeImportRecord(item);
+        const rowNo = item.row || '-';
+        const blocked = !getFilteredProductionImportPreviewRows('ready', [normalized]).length;
+        if (blocked) { skipped++; skippedList.push({ row: rowNo, reason: normalized.reason || 'Blocked by validation, warning, skipped state, or duplicate protection' }); continue; }
+        const selectedEmployees = Array.isArray(normalized.selectedEmployeeIds) && normalized.selectedEmployeeIds.length
+          ? normalized.selectedEmployeeIds
+          : (normalized.entry?.techId ? [{ rawId: normalized.entry.techId, techId: normalized.entry.techId, techName: normalized.entry.techName }] : []);
+        if (!selectedEmployees.length) { skipped++; skippedList.push({ row: rowNo, reason: 'No employee selected for import' }); continue; }
+        const baseEntry = { ...normalized.entry, importedSource: 'ComponentTATStatus', approvalStatus: 'pending' };
+        for (const employee of selectedEmployees) {
+          const entry = { ...baseEntry, techId: employee.techId || employee.rawId || '', techName: employee.techName || employee.rawId || '', taskCode: String(baseEntry.taskCode || '').trim().toUpperCase(), pnum: String(baseEntry.pnum || '').trim(), time: String(baseEntry.time || '').slice(0, 10) };
+          if (!entry.techId || !entry.taskCode || !entry.pnum || !entry.time) { skipped++; skippedList.push({ row: rowNo, reason: 'Missing required fields' }); continue; }
+          if (normalized.importAction !== 'accepted' && isDuplicateImportEntry(entry, [])) { skipped++; skippedList.push({ row: rowNo, reason: 'Duplicate blocked at final import protection' }); continue; }
+          const saved = await DB.upsert('entries', entry);
+          entries.unshift(saved);
+          created++;
+        }
+      }
+      const summary = `Imported ${created} entries${skipped ? `, skipped ${skipped}` : ''}`;
+      renderProdImportReport({ created, skipped, skippedList });
+      if (canManageEntriesUI()) renderAllEntries();
+      clearProductionImportPreview();
+      toast(summary + '. Preview cleared after confirm.');
+    } catch (err) { console.error(err); toast('Production import failed: ' + (err?.message || err), 'error'); }
+  });
+}
+window.commitProductionImport = commitProductionImport;
+window.commitProdImportFromModal = commitProductionImport;
+window.commitProdImportResolved = commitProductionImport;
+function restoreProductionImportState() {
+  try {
+    const raw = sessionStorage.getItem(PROD_IMPORT_STATE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.preview)) return false;
+    productionImportState = { ...productionImportState, ...parsed, preview: parsed.preview, hiddenSkipped: parsed.hiddenSkipped || [], selectionModalOpened: false };
+    syncAllDeptDropdowns();
+    renderImportProduction();
+    recordProductionImportHiddenRows(productionImportState.hiddenSkipped || []);
+    const summary = document.getElementById('prod-import-summary-panel');
+    if (summary && productionImportState.preview?.length) refreshProductionImportSummary(productionImportState.preview);
+    return true;
+  } catch (e) { return false; }
+}
+window.restoreProductionImportState = restoreProductionImportState;
+document.addEventListener('DOMContentLoaded', () => { setTimeout(syncAllDeptDropdowns, 250); });
+
+
+// ════════════════════════════════════════════════
+//  DELETE ALL BUTTONS PATCH
+//  Adds Delete All buttons to Manage Technicians, Manage Parts, and inventory/shop performance pages.
+// ════════════════════════════════════════════════
+function addDeleteAllButtonsToManagePages() {
+  const techToolbar = document.querySelector('#pg-techs .tbr');
+  if (techToolbar && !document.getElementById('delete-all-techs-btn')) {
+    techToolbar.insertAdjacentHTML('beforeend', `<button class="btn bd" id="delete-all-techs-btn" data-perm="techs:delete" onclick="deleteAllVisibleTechnicians()">🗑 Delete All</button>`);
+  }
+
+  const partToolbar = document.querySelector('#pg-parts .tbr');
+  if (partToolbar && !document.getElementById('delete-all-parts-btn')) {
+    partToolbar.insertAdjacentHTML('beforeend', `<button class="btn bd" id="delete-all-parts-btn" data-perm="parts:delete" onclick="deleteAllVisibleParts()">🗑 Delete All</button>`);
+  }
+
+  const shopHistoryBody = document.getElementById('sp-history-body');
+  const shopHistoryCard = shopHistoryBody?.closest('.card');
+  const shopHistoryHeader = shopHistoryCard?.querySelector('.ch');
+  if (shopHistoryHeader && !document.getElementById('delete-all-shopperf-btn')) {
+    shopHistoryHeader.insertAdjacentHTML('beforeend', `<button class="btn bd bsm" id="delete-all-shopperf-btn" data-perm="shopperformance:edit" onclick="deleteAllVisibleShopPerformance()">🗑 Delete All Inventory</button>`);
+  }
+
+  const shopReportToolbar = document.querySelector('#pg-shopreport .tbr');
+  if (shopReportToolbar && !document.getElementById('delete-all-shopreport-btn')) {
+    shopReportToolbar.insertAdjacentHTML('beforeend', `<button class="btn bd bsm" id="delete-all-shopreport-btn" data-perm="shopperformance:edit" onclick="deleteAllVisibleShopPerformanceFromReport()">🗑 Delete All Inventory</button>`);
+  }
+
+  try { applyPermissionsUI(); } catch (e) {}
+}
+function getVisibleTechniciansForBulkDelete() {
+  const q = (document.getElementById('at-q')?.value || '').toLowerCase();
+  const df = document.getElementById('at-dept-filter')?.value || '';
+  const allowed = getAllowedManagedDepartments();
+  let visible = (Array.isArray(techs) ? techs : []).filter(t => !q || String(t.name || '').toLowerCase().includes(q) || String(t.id || '').toLowerCase().includes(q));
+  if (df && (CR === 'dev' || CR === 'mgr')) visible = visible.filter(t => t.department === df);
+  else if (CR !== 'dev') visible = visible.filter(t => t.department && allowed.includes(t.department));
+  return visible.filter(t => CR === 'dev' || canAccessManagedDepartment(t.department));
+}
+function getVisiblePartsForBulkDelete() {
+  const q = (document.getElementById('ap-q')?.value || '').toLowerCase();
+  const df = document.getElementById('ap-dept-filter')?.value || '';
+  const allowed = getAllowedManagedDepartments();
+  let visible = (Array.isArray(parts) ? parts : []).filter(p => !q || String(p.name || '').toLowerCase().includes(q) || String(p.num || '').toLowerCase().includes(q));
+  if (df && (CR === 'dev' || CR === 'mgr')) visible = visible.filter(p => normalizeExistingPartDepartment(p) === df);
+  else if (CR !== 'dev') visible = visible.filter(p => normalizeExistingPartDepartment(p) && allowed.includes(normalizeExistingPartDepartment(p)));
+  return visible.filter(p => CR === 'dev' || canAccessManagedDepartment(normalizeExistingPartDepartment(p)));
+}
+function getVisibleShopPerformanceForBulkDelete(useReportRange = false) {
+  const allowed = getAllowedManagedDepartments();
+  let rows = (Array.isArray(shopPerf) ? shopPerf : []).filter(r => CR === 'dev' || (r.dept && allowed.includes(r.dept)));
+  const deptFromEntry = document.getElementById('sp-dept')?.value || '';
+  if (!useReportRange && deptFromEntry) rows = rows.filter(r => r.dept === deptFromEntry);
+  if (useReportRange) {
+    const start = document.getElementById('sr-dt-from')?.value || '';
+    const end = document.getElementById('sr-dt-to')?.value || '';
+    if (start) rows = rows.filter(r => String(r.weekStart || '').slice(0, 10) >= start);
+    if (end) rows = rows.filter(r => String(r.weekStart || '').slice(0, 10) <= end);
+  }
+  return rows;
+}
+async function deleteRowsFromTable(table, rows) {
+  let removed = 0;
+  for (const row of rows) {
+    if (!row || !row.id) continue;
+    await DB.remove(table, row.id);
+    removed++;
+  }
+  return removed;
+}
+window.deleteAllVisibleTechnicians = async function () {
+  if (!canI('techs', 'delete')) { toast('Not allowed', 'error'); return; }
+  const rows = getVisibleTechniciansForBulkDelete();
+  if (!rows.length) { toast('No visible technicians to delete', 'info'); return; }
+  const label = CR === 'dev' || CR === 'mgr' ? 'visible/filtered technician(s)' : 'technician(s) in your department';
+  if (!confirm(`Delete ${rows.length} ${label}? This cannot be undone.`)) return;
+  try {
+    const removed = await deleteRowsFromTable('technicians', rows);
+    const ids = new Set(rows.map(r => r.id));
+    techs = techs.filter(t => !ids.has(t.id));
+    renderTechs();
+    toast(`Deleted ${removed} technician${removed === 1 ? '' : 's'}`);
+  } catch (err) { console.error(err); toast('Delete all technicians failed: ' + (err?.message || err), 'error'); }
+};
+window.deleteAllVisibleParts = async function () {
+  if (!canI('parts', 'delete')) { toast('Not allowed', 'error'); return; }
+  const rows = getVisiblePartsForBulkDelete();
+  if (!rows.length) { toast('No visible parts to delete', 'info'); return; }
+  const label = CR === 'dev' || CR === 'mgr' ? 'visible/filtered part(s)' : 'part(s) in your department';
+  if (!confirm(`Delete ${rows.length} ${label}? This cannot be undone.`)) return;
+  try {
+    const removed = await deleteRowsFromTable('parts', rows);
+    const ids = new Set(rows.map(r => r.id));
+    parts = parts.filter(p => !ids.has(p.id));
+    renderParts();
+    toast(`Deleted ${removed} part${removed === 1 ? '' : 's'}`);
+  } catch (err) { console.error(err); toast('Delete all parts failed: ' + (err?.message || err), 'error'); }
+};
+window.deleteAllVisibleShopPerformance = async function () {
+  if (!canI('shopperformance', 'edit')) { toast('Not allowed', 'error'); return; }
+  const rows = getVisibleShopPerformanceForBulkDelete(false);
+  if (!rows.length) { toast('No visible inventory records to delete', 'info'); return; }
+  if (!confirm(`Delete ${rows.length} visible inventory / shop performance record${rows.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+  try {
+    const removed = await deleteRowsFromTable('shop_performance', rows);
+    const ids = new Set(rows.map(r => r.id));
+    shopPerf = shopPerf.filter(r => !ids.has(r.id));
+    if (typeof renderShopPerformance === 'function') renderShopPerformance();
+    if (typeof renderShopReport === 'function') renderShopReport();
+    toast(`Deleted ${removed} inventory record${removed === 1 ? '' : 's'}`);
+  } catch (err) { console.error(err); toast('Delete all inventory records failed: ' + (err?.message || err), 'error'); }
+};
+window.deleteAllVisibleShopPerformanceFromReport = async function () {
+  if (!canI('shopperformance', 'edit')) { toast('Not allowed', 'error'); return; }
+  const rows = getVisibleShopPerformanceForBulkDelete(true);
+  if (!rows.length) { toast('No visible inventory records to delete', 'info'); return; }
+  if (!confirm(`Delete ${rows.length} inventory / shop performance record${rows.length === 1 ? '' : 's'} in the selected report range? This cannot be undone.`)) return;
+  try {
+    const removed = await deleteRowsFromTable('shop_performance', rows);
+    const ids = new Set(rows.map(r => r.id));
+    shopPerf = shopPerf.filter(r => !ids.has(r.id));
+    if (typeof renderShopPerformance === 'function') renderShopPerformance();
+    if (typeof renderShopReport === 'function') renderShopReport();
+    toast(`Deleted ${removed} inventory record${removed === 1 ? '' : 's'}`);
+  } catch (err) { console.error(err); toast('Delete all inventory records failed: ' + (err?.message || err), 'error'); }
+};
+const _showPage_deleteBtns = typeof showPage === 'function' ? showPage : null;
+if (_showPage_deleteBtns) {
+  window.showPage = function(page) {
+    const result = _showPage_deleteBtns.apply(this, arguments);
+    setTimeout(addDeleteAllButtonsToManagePages, 50);
+    return result;
+  };
+}
+document.addEventListener('DOMContentLoaded', () => { setTimeout(addDeleteAllButtonsToManagePages, 450); });
+
+
+// ════════════════════════════════════════════════
+//  IMPORT PRODUCTION DEPARTMENT SCOPE PATCH
+//  Imported rows are assigned a department and users can import/view only rows in their allowed department scope.
+// ════════════════════════════════════════════════
+function getDepartmentFromTechnicianId(techId, techName = '') {
+  const rawId = String(techId || '').trim().toLowerCase();
+  const rawName = String(techName || '').trim().toLowerCase();
+  const tech = (Array.isArray(techs) ? techs : []).find(t => String(t.id || '').trim().toLowerCase() === rawId)
+    || (Array.isArray(techs) ? techs : []).find(t => String(t.name || '').trim().toLowerCase() === rawName);
+  return tech?.department || '';
+}
+function getDepartmentFromPartNumber(pnum) {
+  const raw = String(pnum || '').trim().toLowerCase();
+  const part = (Array.isArray(parts) ? parts : []).find(p => String(p.num || '').trim().toLowerCase() === raw)
+    || (Array.isArray(parts) ? parts : []).find(p => String(p.oem || '').trim().toLowerCase() === raw)
+    || (Array.isArray(parts) ? parts : []).find(p => String(p.altNum || '').trim().toLowerCase() === raw);
+  return normalizeExistingPartDepartment(part);
+}
+function resolveProductionImportDepartment(item) {
+  if (!item) return '';
+  item.entry = { ...(item.entry || {}) };
+  const entry = item.entry;
+  let dept = entry.department || entry.dept || item.department || item.dept || '';
+  if (!dept) dept = getDepartmentFromTechnicianId(entry.techId, entry.techName);
+  if (!dept) dept = getDepartmentFromPartNumber(entry.pnum);
+  if (!dept && CR !== 'dev') dept = firstAllowedManagedDepartment();
+  if (!dept && CR === 'dev') dept = departments[0]?.id || '';
+  entry.department = dept;
+  item.department = dept;
+  return dept;
+}
+function canImportProductionDepartment(dept) {
+  if (!dept) return false;
+  return canAccessManagedDepartment(dept);
+}
+function applyProductionImportDepartmentScope(items) {
+  const rows = Array.isArray(items) ? items : [];
+  return rows.filter(item => {
+    const dept = resolveProductionImportDepartment(item);
+    return canImportProductionDepartment(dept);
+  });
+}
+function productionImportDepartmentHiddenReason(item) {
+  const dept = resolveProductionImportDepartment(item);
+  if (!dept) return 'No department identified for imported row';
+  return `Row belongs to ${deptLabel(dept)}, outside your allowed department scope`;
+}
+const _previewProductionImport_scopedBase = typeof previewProductionImport === 'function' ? previewProductionImport : null;
+async function previewProductionImport(input) {
+  const file = input?.files?.[0]; if (!file) return;
+  if (!window.XLSX) { toast('Import library not loaded', 'error'); return; }
+  return runWithImportLoading('Preparing production preview...', async () => {
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = window.XLSX.read(buf, { type: 'array', cellDates: true });
+      const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
+      const rawRows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+      const preview = [];
+      const hiddenRows = [];
+
+      rows.forEach((row, idx) => {
+        const excelRowNumber = idx + 2;
+        const rawRow = rawRows[idx + 1] || [];
+        const wpId = getImportTaskCodeFromRawRow(row);
+        if (!wpId) {
+          hiddenRows.push({ row: excelRowNumber, reason: 'Blank WP ID / Column A ignored by default' });
+          return;
+        }
+        const built = buildEntriesFromRow(row, excelRowNumber, rawRow) || [];
+        if (!built.length) {
+          hiddenRows.push({ row: excelRowNumber, reason: 'Missing required row data' });
+          return;
+        }
+        built.forEach(item => {
+          item.rawPartNumber = item.rawPartNumber || item.entry?.pnum || cleanImportField(row['OEM P/N'] || row.OEM_PN || row['Part Number'] || row.PartNum || row.PN || row.Part || row['Part #'] || '');
+          applyProductionImportDefaultMappingsToItem(item);
+          const hidden = productionImportShouldHideBeforePreview(item, row);
+          if (hidden.hide) { hiddenRows.push({ row: item.row || excelRowNumber, reason: hidden.reason }); return; }
+          const dept = resolveProductionImportDepartment(item);
+          if (!canImportProductionDepartment(dept)) {
+            hiddenRows.push({ row: item.row || excelRowNumber, reason: productionImportDepartmentHiddenReason(item) });
+            return;
+          }
+          preview.push(item);
+        });
+      });
+
+      productionImportState = { fileName: file.name, rows, preview, autoSkipEmpty: true, previewTab: 'all', pendingRowIndex: null, lastAddedTechId: '', lastAddedPartNum: '', lastAddedPartName: '', ignoreAlways: [], ignoredMissingEmployeeIds: [], selectionModalOpened: false, hiddenSkipped: hiddenRows };
+      saveProductionImportState();
+      if (document.getElementById('prod-stepper')) document.getElementById('prod-stepper').style.display = '';
+      setProdImportStep('uploaded');
+      validateProductionImportPreview();
+      recordProductionImportHiddenRows(hiddenRows);
+      openModal('m-prod-import-help');
+      toast(`Preview ready: ${preview.length} row${preview.length === 1 ? '' : 's'}${hiddenRows.length ? `, ${hiddenRows.length} hidden` : ''}`);
+    } catch (err) { console.error(err); toast('Preview failed', 'error'); }
+    finally { if (input) input.value = ''; }
+  });
+}
+window.previewProductionImport = previewProductionImport;
+window.handleProdImportUpload = previewProductionImport;
+function validateProductionImportPreview() {
+  const items = applyProductionImportDepartmentScope(Array.isArray(productionImportState.preview) ? productionImportState.preview : []);
+  const removedOutOfScope = (Array.isArray(productionImportState.preview) ? productionImportState.preview : []).length - items.length;
+  if (removedOutOfScope > 0) {
+    productionImportState.hiddenSkipped = [...(productionImportState.hiddenSkipped || []), { row: '—', reason: `${removedOutOfScope} row(s) hidden because they are outside your department scope` }];
+  }
+  const next = items.map(item => ({
+    ...item,
+    entry: { ...(item.entry || {}) },
+    missingRequired: [],
+    errors: [],
+    warnings: []
+  }));
+
+  next.forEach(item => {
+    resolveProductionImportDepartment(item);
+    const entry = item.entry || {};
+    const normalized = {
+      ...entry,
+      taskCode: String(entry.taskCode || '').trim().toUpperCase(),
+      jobRole: String(entry.jobRole || '').trim(),
+      pnum: String(entry.pnum || '').trim(),
+      time: String(entry.time || '').slice(0, 10),
+      techId: String(entry.techId || '').trim(),
+      techName: String(entry.techName || '').trim(),
+      pname: String(entry.pname || '').trim(),
+      department: entry.department || item.department || ''
+    };
+
+    item.entry = normalized;
+    item.missingRequired = [];
+    item.errors = [];
+    item.warnings = [];
+
+    const duplicateWasAccepted = item.importAction === 'accepted';
+    item.isDuplicate = false;
+    item.isSkipped = false;
+    item.badge = '';
+    if (!duplicateWasAccepted) item.importAction = '';
+
+    if (!canImportProductionDepartment(normalized.department)) {
+      item.status = 'Wrong department';
+      item.reason = productionImportDepartmentHiddenReason(item);
+      item.canImport = false;
+      item.severity = 'error';
+      item.isSkipped = true;
+      return;
+    }
+
+    if (productionImportState.ignoreAlways.includes(String(item.id || item.row))) {
+      item.status = 'Ignored by user';
+      item.reason = 'Ignored for future rows';
+      item.canImport = false;
+      item.severity = 'warning';
+      item.isSkipped = true;
+      return;
+    }
+
+    if (item.isEmptyRow) {
+      item.status = 'Warning';
+      item.reason = 'Empty or footer row skipped';
+      item.canImport = false;
+      item.severity = 'warning';
+      item.isSkipped = true;
+      return;
+    }
+
+    const reasons = [];
+    const part = findPartByNumber(normalized.pnum);
+    if (part) {
+      item.entry = {
+        ...item.entry,
+        pnum: part.num || normalized.pnum,
+        pname: part.name || normalized.pname,
+        stdHours: part.hours || normalized.stdHours || 0,
+        hours: normalized.hours || calcPoolHrs(part, normalized.jobRole, normalized.taskCode),
+        department: item.entry.department || normalizeExistingPartDepartment(part) || normalized.department
+      };
+      resolveProductionImportDepartment(item);
+    }
+
+    let employeeState = buildEmployeeSelectionState(item);
+    let parsedEmployees = employeeState.parsedEmployees;
+    let validCandidates = employeeState.validCandidates;
+    let missingCandidates = employeeState.missingCandidates;
+    let selectedEmployees = employeeState.selectedEmployees;
+    let status = employeeState.status;
+    let canImportEmployee = employeeState.canImport;
+
+    const selectedValid = (Array.isArray(item.selectedEmployeeIds) ? item.selectedEmployeeIds : []).filter(sel => findTechByIdOrName(sel.techId || sel.id || sel.rawId || sel.techName));
+    const manualTech = findTechByIdOrName(normalized.techId) || findTechByIdOrName(normalized.techName);
+    if (selectedValid.length) {
+      selectedEmployees = selectedValid.map(sel => {
+        const tech = findTechByIdOrName(sel.techId || sel.id || sel.rawId || sel.techName);
+        return { rawId: sel.rawId || tech.id, techId: tech.id, techName: tech.name };
+      });
+      validCandidates = selectedEmployees;
+      missingCandidates = [];
+      parsedEmployees = selectedEmployees;
+      status = 'Ready';
+      canImportEmployee = true;
+      item.entry = { ...item.entry, techId: selectedEmployees[0].techId, techName: selectedEmployees[0].techName, department: getDepartmentFromTechnicianId(selectedEmployees[0].techId, selectedEmployees[0].techName) || item.entry.department };
+      item.employeeItems = selectedEmployees.map(emp => ({ ...emp, valid: true, isValid: true, id: emp.techId, name: emp.techName }));
+      item.selectedEmployeeIds = selectedEmployees;
+    } else if (manualTech) {
+      const mapped = { rawId: normalized.techId || normalized.techName || manualTech.id, techId: manualTech.id, techName: manualTech.name };
+      selectedEmployees = [mapped];
+      validCandidates = [mapped];
+      missingCandidates = [];
+      parsedEmployees = [mapped];
+      status = 'Ready';
+      canImportEmployee = true;
+      item.entry = { ...item.entry, techId: manualTech.id, techName: manualTech.name, department: manualTech.department || item.entry.department };
+      item.employeeItems = [{ ...mapped, valid: true, isValid: true, id: manualTech.id, name: manualTech.name }];
+      item.selectedEmployeeIds = [mapped];
+    }
+    resolveProductionImportDepartment(item);
+
+    if (!item.entry.time) reasons.push(item.dateValidation || 'Missing date');
+    if (!item.entry.pnum) reasons.push('Missing part');
+    else if (!part) reasons.push('Missing part');
+    if (!item.entry.department || !canImportProductionDepartment(item.entry.department)) reasons.push('Wrong department');
+
+    const statusInfo = normalizeImportStatus(item.entry.jobType || normalized.jobType || '');
+    if (!statusInfo.supported) reasons.push('Unsupported status');
+
+    if (!parsedEmployees.length && !(item.entry.techId || item.entry.techName)) reasons.push('Missing employee');
+    else if (parsedEmployees.length && !validCandidates.length) reasons.push('Missing employee');
+    else if (status === 'Needs selection') reasons.push('Needs selection');
+    else if (status === 'Partial match') reasons.push('Partial match');
+
+    item.employeeItems = parsedEmployees;
+    item.selectedEmployeeIds = Array.isArray(item.selectedEmployeeIds) ? item.selectedEmployeeIds : [];
+    item.missingRequired = reasons;
+    item.validationStatus = status;
+
+    if (reasons.length) {
+      item.errors = reasons;
+      item.status = reasons.includes('Wrong department') ? 'Wrong department' : (status === 'Needs selection' ? 'Needs selection' : (status === 'Partial match' ? 'Partial match' : (status === 'Missing employee' ? 'Missing employee' : 'Needs review')));
+      item.reason = reasons.includes('Wrong department')
+        ? productionImportDepartmentHiddenReason(item)
+        : (status === 'Needs selection'
+          ? 'Multiple valid employees found - select one or more'
+          : (status === 'Partial match'
+            ? `Found ${validCandidates.length} valid employee${validCandidates.length === 1 ? '' : 's'} and ${missingCandidates.length} missing ID${missingCandidates.length === 1 ? '' : 's'}`
+            : (status === 'Missing employee' ? 'No valid employee found' : reasons.join(', '))));
+      item.canImport = false;
+      item.severity = canImportEmployee && status === 'Partial match' ? 'warning' : 'error';
+      return;
+    }
+
+    item.status = 'Ready';
+    item.reason = '';
+    item.canImport = true;
+    item.severity = 'ok';
+    item.isSkipped = false;
+  });
+
+  const duplicateIndexes = getProductionImportDuplicateIndexes(next);
+  duplicateIndexes.forEach(index => {
+    const item = next[index];
+    if (item.importAction === 'accepted') return;
+    const sourceText = item.duplicateSource === 'existing-entry'
+      ? 'Duplicate found against existing saved production entry'
+      : 'Duplicate found inside current import preview';
+    markProductionImportDuplicateIgnored(item, sourceText);
+  });
+
+  productionImportState.preview = next.filter(item => canImportProductionDepartment(resolveProductionImportDepartment(item)));
+  saveProductionImportState();
+  renderImportProduction();
+
+  if (!productionImportState.selectionModalOpened) {
+    const pendingSelection = productionImportState.preview.find(item => item.hasMultipleEmployees && item.validationStatus === 'Needs selection' && (!Array.isArray(item.selectedEmployeeIds) || !item.selectedEmployeeIds.length));
+    if (pendingSelection) openEmployeeSelectionModal(pendingSelection.id || pendingSelection.row);
+  }
+
+  refreshProductionImportSummary(productionImportState.preview);
+}
+window.validateProductionImportPreview = validateProductionImportPreview;
+function renderImportProduction() {
+  const body = document.getElementById('prod-import-body'), empty = document.getElementById('prod-import-empty'); if (!body || !empty) return;
+  let rows = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  rows.forEach(item => { applyProductionImportDefaultMappingsToItem(item); resolveProductionImportDepartment(item); });
+  rows = rows.filter(item => canImportProductionDepartment(item.entry?.department || item.department));
+  productionImportState.preview = rows;
+  const activeTab = productionImportState.previewTab || 'all';
+  const filteredRows = getFilteredProductionImportPreviewRows(activeTab, rows);
+  refreshProductionImportSummary(rows);
+  recordProductionImportHiddenRows(productionImportState.hiddenSkipped || []);
+  empty.style.display = rows.length && !filteredRows.length ? 'block' : rows.length ? 'none' : 'block';
+  if (empty.style.display === 'block') empty.querySelector('.et').textContent = rows.length ? 'No rows match this filter.' : 'No preview loaded yet.';
+  body.innerHTML = filteredRows.map((item, idx) => {
+    const entry = item.entry || {};
+    const status = item.status || 'Needs review';
+    const ready = productionImportRowIsReady(item);
+    const duplicate = isProductionImportDuplicateStatus(item);
+    const employeeIssue = productionImportRowHasEmployeeIssue(item);
+    const partIssue = productionImportRowHasPartIssue(item);
+    const badgeClass = duplicate ? 'warn' : (ready ? 'good' : (item.severity === 'warning' || status === 'Warning' || status === 'Ignored by user' || status === 'Ignored once' ? 'warn' : 'error'));
+    const badge = `<span class="prod-import-row-badge ${badgeClass}">${escapeHtml(status)}</span>`;
+    const deptBadge = entry.department ? `<span class="prod-import-row-badge good" title="Department">${escapeHtml(deptLabel(entry.department))}</span>` : `<span class="prod-import-row-badge error">No department</span>`;
+    const employeeSummary = item.employeeItems?.length ? item.employeeItems.map(emp => `${emp.valid ? '✓' : '✗'} ${escapeHtml(emp.rawId)}`).join('<br>') : escapeHtml(entry.techName || entry.techId || '—');
+    const resolveEmployeeAction = employeeIssue && item.hasMultipleEmployees ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openEmployeeSelectionModal('${item.id || item.row}')">Resolve Employees</button>` : '';
+    const addTechAction = employeeIssue ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openAddTechForImport('${item.id || item.row}')">Add Employee</button>` : '';
+    const mapTechAction = employeeIssue ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRow('${item.id || item.row}','tech')">Map Existing Employee</button>` : '';
+    const mapTechDefaultAction = employeeIssue ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRowDefault('${item.id || item.row}','tech')">Map Employee & Save Default</button>` : '';
+    const addPartAction = partIssue ? `<button class="btn bp bsm" style="padding:3px 8px;" onclick="openAddPartForImport('${item.id || item.row}')">Add Part</button>` : '';
+    const mapPartAction = partIssue ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRow('${item.id || item.row}','part')">Map Existing Part</button>` : '';
+    const mapPartDefaultAction = partIssue ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="mapProductionImportRowDefault('${item.id || item.row}','part')">Map Part & Save Default</button>` : '';
+    const ignoreOnceAction = !ready ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="ignoreProductionImportRow('${item.id || item.row}','once')">Ignore Once</button>` : '';
+    const ignoreAlwaysAction = !ready ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="ignoreProductionImportRow('${item.id || item.row}','always')">Ignore Always</button>` : '';
+    const skipAction = `<button class="btn bd bsm" style="padding:3px 8px;" onclick="skipProductionImportRow('${item.id || item.row}')">Skip Row</button>`;
+    const duplicateActions = duplicate ? `<button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.id || item.row}', 'keep-first')">Keep first</button> <button class="btn bo bsm" style="padding:3px 8px;" onclick="resolveProductionImportDuplicate('${item.id || item.row}', 'keep-last')">Keep last</button>` : '';
+    const rowActions = `${resolveEmployeeAction}${addTechAction}${mapTechAction}${mapTechDefaultAction}${addPartAction}${mapPartAction}${mapPartDefaultAction}${ignoreOnceAction}${ignoreAlwaysAction}${skipAction}`;
+    const detail = item.reason ? `<div class="prod-import-detail">${escapeHtml(item.reason)}</div>` : '';
+    const mappingNote = (item.defaultMappedPart || item.defaultMappedEmployee) ? `<div class="prod-import-detail" style="color:var(--green);">Default mapping applied</div>` : '';
+    const hours = Number(entry.hours || 0);
+    return `<tr><td class="mono">${item.row || idx + 1}</td><td class="mono">${String(entry.time || '').slice(0, 10) || '—'}</td>
+      <td>${employeeSummary}</td><td>${escapeHtml(entry.jobRole || '—')}</td>
+      <td class="mono" style="color:var(--blue);">${escapeHtml(entry.taskCode || '—')}</td><td class="mono" style="color:var(--amber);">${escapeHtml(entry.pnum || '—')}</td>
+      <td class="mono">${Number.isFinite(hours) ? hours.toFixed(2) : '0.00'}h</td>
+      <td>${badge} ${deptBadge}<div class="prod-import-row-actions">${rowActions}</div>${duplicateActions}${detail}${mappingNote}</td></tr>`;
+  }).join('') || '';
+}
+window.renderImportProduction = renderImportProduction;
+async function commitProductionImport() {
+  if (!canI('importproduction', 'import')) { toast('Not allowed', 'error'); return; }
+  validateProductionImportPreview();
+  const preview = Array.isArray(productionImportState.preview) ? productionImportState.preview : [];
+  if (!preview.length) { toast('Upload a file first', 'error'); return; }
+  const readyRows = getFilteredProductionImportPreviewRows('ready', preview).filter(item => canImportProductionDepartment(resolveProductionImportDepartment(item)));
+  if (!readyRows.length) { toast('No clean Ready rows are available for your department. Resolve errors, warnings, or duplicates before confirming.', 'error'); return; }
+  return runWithImportLoading('Importing production...', async () => {
+    try {
+      let created = 0, skipped = 0; const skippedList = [];
+      for (const item of preview) {
+        resolveProductionImportDepartment(item);
+        const normalized = normalizeImportRecord(item);
+        normalized.entry.department = normalized.entry.department || item.department || '';
+        const rowNo = item.row || '-';
+        const blocked = !getFilteredProductionImportPreviewRows('ready', [normalized]).length || !canImportProductionDepartment(normalized.entry.department);
+        if (blocked) { skipped++; skippedList.push({ row: rowNo, reason: normalized.reason || 'Blocked by validation or department scope' }); continue; }
+        const selectedEmployees = Array.isArray(normalized.selectedEmployeeIds) && normalized.selectedEmployeeIds.length
+          ? normalized.selectedEmployeeIds
+          : (normalized.entry?.techId ? [{ rawId: normalized.entry.techId, techId: normalized.entry.techId, techName: normalized.entry.techName }] : []);
+        if (!selectedEmployees.length) { skipped++; skippedList.push({ row: rowNo, reason: 'No employee selected for import' }); continue; }
+        const baseEntry = { ...normalized.entry, importedSource: 'ComponentTATStatus', approvalStatus: 'pending', department: normalized.entry.department };
+        for (const employee of selectedEmployees) {
+          const techDept = getDepartmentFromTechnicianId(employee.techId || employee.rawId || '', employee.techName || '') || baseEntry.department;
+          const entryDept = techDept || baseEntry.department;
+          if (!canImportProductionDepartment(entryDept)) { skipped++; skippedList.push({ row: rowNo, reason: 'Employee department is outside your import scope' }); continue; }
+          const entry = { ...baseEntry, department: entryDept, techId: employee.techId || employee.rawId || '', techName: employee.techName || employee.rawId || '', taskCode: String(baseEntry.taskCode || '').trim().toUpperCase(), pnum: String(baseEntry.pnum || '').trim(), time: String(baseEntry.time || '').slice(0, 10) };
+          if (!entry.techId || !entry.taskCode || !entry.pnum || !entry.time || !entry.department) { skipped++; skippedList.push({ row: rowNo, reason: 'Missing required fields or department' }); continue; }
+          if (normalized.importAction !== 'accepted' && isDuplicateImportEntry(entry, [])) { skipped++; skippedList.push({ row: rowNo, reason: 'Duplicate blocked at final import protection' }); continue; }
+          const saved = await DB.upsert('entries', entry);
+          entries.unshift(saved);
+          created++;
+        }
+      }
+      const summary = `Imported ${created} entries${skipped ? `, skipped ${skipped}` : ''}`;
+      renderProdImportReport({ created, skipped, skippedList });
+      if (canManageEntriesUI()) renderAllEntries();
+      clearProductionImportPreview();
+      toast(summary + '. Preview cleared after confirm.');
+    } catch (err) { console.error(err); toast('Production import failed: ' + (err?.message || err), 'error'); }
+  });
+}
+window.commitProductionImport = commitProductionImport;
+window.commitProdImportFromModal = commitProductionImport;
+window.commitProdImportResolved = commitProductionImport;
+
+
+// ════════════════════════════════════════════════
+//  DELETE ALL LOADING STATE PATCH
+//  Shows loading/disabled state on Delete All buttons until delete process finishes.
+// ════════════════════════════════════════════════
+function setDeleteAllButtonLoading(buttonId, isLoading, loadingText = 'Deleting...') {
+  const btn = document.getElementById(buttonId);
+  if (!btn) return;
+  if (isLoading) {
+    if (!btn.dataset.originalHtml) btn.dataset.originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.classList.add('saving', 'loading');
+    btn.innerHTML = `<span class="btn-spinner" style="display:inline-block;"></span><span>${loadingText}</span>`;
+  } else {
+    btn.disabled = false;
+    btn.classList.remove('saving', 'loading');
+    if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
+  }
+}
+function setDeleteAllButtonsLoading(buttonIds, isLoading, loadingText = 'Deleting...') {
+  (Array.isArray(buttonIds) ? buttonIds : [buttonIds]).forEach(id => setDeleteAllButtonLoading(id, isLoading, loadingText));
+}
+window.deleteAllVisibleTechnicians = async function () {
+  if (!canI('techs', 'delete')) { toast('Not allowed', 'error'); return; }
+  const rows = getVisibleTechniciansForBulkDelete();
+  if (!rows.length) { toast('No visible technicians to delete', 'info'); return; }
+  const label = CR === 'dev' || CR === 'mgr' ? 'visible/filtered technician(s)' : 'technician(s) in your department';
+  if (!confirm(`Delete ${rows.length} ${label}? This cannot be undone.`)) return;
+  setDeleteAllButtonLoading('delete-all-techs-btn', true, `Deleting ${rows.length}...`);
+  try {
+    const removed = await deleteRowsFromTable('technicians', rows);
+    const ids = new Set(rows.map(r => r.id));
+    techs = techs.filter(t => !ids.has(t.id));
+    renderTechs();
+    toast(`Deleted ${removed} technician${removed === 1 ? '' : 's'}`);
+  } catch (err) {
+    console.error(err);
+    toast('Delete all technicians failed: ' + (err?.message || err), 'error');
+  } finally {
+    setDeleteAllButtonLoading('delete-all-techs-btn', false);
+  }
+};
+window.deleteAllVisibleParts = async function () {
+  if (!canI('parts', 'delete')) { toast('Not allowed', 'error'); return; }
+  const rows = getVisiblePartsForBulkDelete();
+  if (!rows.length) { toast('No visible parts to delete', 'info'); return; }
+  const label = CR === 'dev' || CR === 'mgr' ? 'visible/filtered part(s)' : 'part(s) in your department';
+  if (!confirm(`Delete ${rows.length} ${label}? This cannot be undone.`)) return;
+  setDeleteAllButtonLoading('delete-all-parts-btn', true, `Deleting ${rows.length}...`);
+  try {
+    const removed = await deleteRowsFromTable('parts', rows);
+    const ids = new Set(rows.map(r => r.id));
+    parts = parts.filter(p => !ids.has(p.id));
+    renderParts();
+    toast(`Deleted ${removed} part${removed === 1 ? '' : 's'}`);
+  } catch (err) {
+    console.error(err);
+    toast('Delete all parts failed: ' + (err?.message || err), 'error');
+  } finally {
+    setDeleteAllButtonLoading('delete-all-parts-btn', false);
+  }
+};
+window.deleteAllVisibleShopPerformance = async function () {
+  if (!canI('shopperformance', 'edit')) { toast('Not allowed', 'error'); return; }
+  const rows = getVisibleShopPerformanceForBulkDelete(false);
+  if (!rows.length) { toast('No visible inventory records to delete', 'info'); return; }
+  if (!confirm(`Delete ${rows.length} visible inventory / shop performance record${rows.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+  setDeleteAllButtonsLoading(['delete-all-shopperf-btn', 'delete-all-shopreport-btn'], true, `Deleting ${rows.length}...`);
+  try {
+    const removed = await deleteRowsFromTable('shop_performance', rows);
+    const ids = new Set(rows.map(r => r.id));
+    shopPerf = shopPerf.filter(r => !ids.has(r.id));
+    if (typeof renderShopPerformance === 'function') renderShopPerformance();
+    if (typeof renderShopReport === 'function') renderShopReport();
+    toast(`Deleted ${removed} inventory record${removed === 1 ? '' : 's'}`);
+  } catch (err) {
+    console.error(err);
+    toast('Delete all inventory records failed: ' + (err?.message || err), 'error');
+  } finally {
+    setDeleteAllButtonsLoading(['delete-all-shopperf-btn', 'delete-all-shopreport-btn'], false);
+  }
+};
+window.deleteAllVisibleShopPerformanceFromReport = async function () {
+  if (!canI('shopperformance', 'edit')) { toast('Not allowed', 'error'); return; }
+  const rows = getVisibleShopPerformanceForBulkDelete(true);
+  if (!rows.length) { toast('No visible inventory records to delete', 'info'); return; }
+  if (!confirm(`Delete ${rows.length} inventory / shop performance record${rows.length === 1 ? '' : 's'} in the selected report range? This cannot be undone.`)) return;
+  setDeleteAllButtonsLoading(['delete-all-shopperf-btn', 'delete-all-shopreport-btn'], true, `Deleting ${rows.length}...`);
+  try {
+    const removed = await deleteRowsFromTable('shop_performance', rows);
+    const ids = new Set(rows.map(r => r.id));
+    shopPerf = shopPerf.filter(r => !ids.has(r.id));
+    if (typeof renderShopPerformance === 'function') renderShopPerformance();
+    if (typeof renderShopReport === 'function') renderShopReport();
+    toast(`Deleted ${removed} inventory record${removed === 1 ? '' : 's'}`);
+  } catch (err) {
+    console.error(err);
+    toast('Delete all inventory records failed: ' + (err?.message || err), 'error');
+  } finally {
+    setDeleteAllButtonsLoading(['delete-all-shopperf-btn', 'delete-all-shopreport-btn'], false);
+  }
+};
+
+
+// ════════════════════════════════════════════════
+//  LEADERBOARD EXPORT FORMAT PATCH
+//  Image and PDF export now match the requested monthly productivity report layout.
+// ════════════════════════════════════════════════
+function getLeaderboardExportMonthLabel(range = getUIRange('dash')) {
+  const src = range?.start || todayEAT();
+  const d = new Date(src + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return todayEAT().slice(0, 7).toUpperCase();
+  return d.toLocaleString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
+}
+function getLeaderboardExportStats(range = getUIRange('dash')) {
+  return getLeaderboardStats(range)
+    .map(t => ({ ...t, pct: t.tgt ? Math.round((t.total / t.tgt) * 100) : 0 }))
+    .sort((a, b) => b.pct - a.pct || b.total - a.total || String(a.id || '').localeCompare(String(b.id || '')));
+}
+function leaderboardExportColor(pct) {
+  if (pct >= 100) return '#10b981';
+  if (pct >= 70) return '#f59e0b';
+  return '#f43f5e';
+}
+function buildLeaderboardExportPage(stats, pageIndex, pageCount, monthLabel) {
+  const perPage = 10;
+  const pageItems = stats.slice(pageIndex * perPage, (pageIndex + 1) * perPage);
+  const dateText = todayEAT();
+  const itemCount = pageItems.length;
+  const gap = itemCount <= 7 ? 88 : itemCount <= 8 ? 66 : itemCount <= 9 ? 46 : 28;
+  const colWidth = itemCount ? Math.floor((1460 - (gap * (itemCount - 1))) / itemCount) : 120;
+  return `<section class="pt-export-page" style="width:1536px;height:820px;background:#eef3f8;border-radius:14px;overflow:hidden;position:relative;color:#0f172a;font-family:'Plus Jakarta Sans',Arial,sans-serif;box-shadow:0 1px 0 rgba(15,23,42,.08);margin:0 0 24px 0;">
+    <div style="height:122px;background:#c90d1f;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:24px 28px 20px 28px;">
+      <div>
+        <div style="font-size:48px;line-height:.92;font-weight:900;letter-spacing:-1.8px;">Monthly Productivity Report</div>
+        <div style="font-size:34px;line-height:1;font-weight:900;text-transform:uppercase;margin-top:8px;">${escapeHtml(monthLabel)}</div>
+      </div>
+      <div style="text-align:right;font-size:17px;font-weight:900;line-height:1.18;text-transform:uppercase;">
+        <div>PAGE ${pageIndex + 1} OF ${pageCount}</div>
+        <div>HORIZONTAL LEADERBOARD</div>
+      </div>
+    </div>
+    <div style="position:absolute;left:32px;top:144px;font-size:14px;color:#50637a;font-weight:600;">Ranked by achievement percentage.</div>
+    <div style="position:absolute;right:34px;top:140px;display:flex;align-items:center;gap:16px;font-size:15px;font-weight:900;color:#111827;">
+      <span style="display:inline-flex;align-items:center;gap:7px;"><i style="display:inline-block;width:16px;height:16px;background:#10b981;"></i>≥100%</span>
+      <span style="display:inline-flex;align-items:center;gap:7px;"><i style="display:inline-block;width:16px;height:16px;background:#f59e0b;"></i>70–99%</span>
+      <span style="display:inline-flex;align-items:center;gap:7px;"><i style="display:inline-block;width:16px;height:16px;background:#f43f5e;"></i>&lt;70%</span>
+    </div>
+    <div style="position:absolute;left:52px;right:52px;bottom:76px;height:520px;display:flex;align-items:flex-end;justify-content:center;gap:${gap}px;">
+      ${pageItems.map(t => {
+        const pct = Number(t.pct || 0);
+        const color = leaderboardExportColor(pct);
+        const barH = Math.max(26, Math.min(285, Math.round((Math.min(pct, 170) / 170) * 285)));
+        const avatar = avatarHtml(t.id, t.name, 76);
+        return `<div style="width:${colWidth}px;height:508px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;position:relative;">
+          <div style="font-size:24px;font-weight:900;color:${color};line-height:1;">${pct}%</div>
+          <div style="font-size:16px;font-weight:900;color:#0f172a;line-height:1.2;margin-top:2px;">${Number(t.total || 0).toFixed(1)}Hrs</div>
+          <div style="width:92px;height:92px;border-radius:50%;border:6px solid ${color};background:#dbe6f0;overflow:hidden;margin-top:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 9px rgba(15,23,42,.15);">
+            <div style="width:76px;height:76px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;">${avatar}</div>
+          </div>
+          <div style="width:30px;height:${barH}px;background:${color};border-radius:18px;margin-top:12px;"></div>
+          <div style="margin-top:16px;background:#0f172a;color:#fff;border-radius:20px;min-width:78px;height:34px;padding:7px 14px;font-size:15px;line-height:20px;font-family:'JetBrains Mono',monospace;font-weight:900;text-align:center;box-shadow:0 2px 4px rgba(15,23,42,.18);">${escapeHtml(String(t.id || '').slice(0, 10))}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="position:absolute;left:0;right:0;bottom:0;height:42px;border-top:1px solid #dbe5ee;background:#edf3f8;color:#6b7c92;font-size:10px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;">
+      <span>Generated from the current leaderboard view.</span>
+      <span>${escapeHtml(dateText)}</span>
+    </div>
+  </section>`;
+}
+function buildLeaderboardExportDocument(stats, monthLabel) {
+  const perPage = 10;
+  const pageCount = Math.max(1, Math.ceil(stats.length / perPage));
+  const pages = Array.from({ length: pageCount }, (_, i) => buildLeaderboardExportPage(stats, i, pageCount, monthLabel)).join('');
+  return `<div id="pt-leaderboard-export-doc" style="position:fixed;left:-99999px;top:0;width:1536px;background:#eef3f8;padding:0;font-family:'Plus Jakarta Sans',Arial,sans-serif;">${pages}</div>`;
+}
+async function exportLeaderboard(panelId, format = 'image') {
+  if (!canI('dashboard', 'export')) { toast('Not allowed', 'error'); return; }
+  if (!window.html2canvas) { toast('Export library not loaded', 'error'); return; }
+  const range = getUIRange('dash');
+  const stats = getLeaderboardExportStats(range);
+  if (!stats.length) { toast('No leaderboard data to export', 'info'); return; }
+  const monthLabel = getLeaderboardExportMonthLabel(range);
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = buildLeaderboardExportDocument(stats, monthLabel);
+  const panel = wrapper.firstElementChild;
+  document.body.appendChild(panel);
+  const safeDate = todayEAT();
+  try {
+    await new Promise(resolve => setTimeout(resolve, 120));
+    if (format === 'pdf') {
+      const { jsPDF } = window.jspdf || {}; if (!jsPDF) throw new Error('jsPDF missing');
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pages = Array.from(panel.querySelectorAll('.pt-export-page'));
+      for (let i = 0; i < pages.length; i++) {
+        const canvas = await html2canvas(pages[i], { scale: 2, backgroundColor: '#eef3f8', useCORS: true, allowTaint: true });
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        if (i > 0) pdf.addPage('a4', 'landscape');
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageW, pageH);
+      }
+      pdf.save(`leaderboard_${safeDate}.pdf`);
+      toast('PDF exported in monthly productivity format');
+    } else {
+      const canvas = await html2canvas(panel, { scale: 2, backgroundColor: '#eef3f8', useCORS: true, allowTaint: true });
+      const link = document.createElement('a');
+      link.href = canvas.toDataURL('image/png');
+      link.download = `leaderboard_${safeDate}.png`;
+      link.click();
+      toast('Image exported in monthly productivity format');
+    }
+  } catch (err) {
+    console.error(err);
+    toast('Export failed: ' + (err?.message || err), 'error');
+  } finally {
+    panel.remove();
+  }
+}
+window.exportLeaderboard = exportLeaderboard;
+
+
+// ════════════════════════════════════════════════
+//  USER-DEPARTMENT BULK TECH/PART IMPORT PATCH
+//  When a user imports technicians or parts, every imported row is saved under that user's allowed department.
+// ════════════════════════════════════════════════
+function getBulkImportOwnerDepartment() {
+  const scope = typeof getAllowedManagedDepartments === 'function' ? getAllowedManagedDepartments() : currentUserDeptScope();
+  if (CR !== 'dev' && CU?.department) return CU.department;
+  if (Array.isArray(scope) && scope.length === 1) return scope[0];
+  if (Array.isArray(scope) && scope.length > 1) return scope[0];
+  return departments[0]?.id || '';
+}
+function enforceImportOwnerDepartment(rowDept = '') {
+  const ownerDept = getBulkImportOwnerDepartment();
+  if (!ownerDept) return '';
+  return ownerDept;
+}
+function getImportOwnerDepartmentLabel() {
+  const dept = getBulkImportOwnerDepartment();
+  return deptLabel(dept || '') || 'your department';
+}
+window.handleTechImport = function (input) {
+  if (!canI('techs', 'import')) { toast('Not allowed', 'error'); return; }
+  const f = input.files[0]; if (!f) return;
+  const importDept = enforceImportOwnerDepartment();
+  if (!importDept || (CR !== 'dev' && !canAccessManagedDepartment(importDept))) { toast('No allowed department available for import', 'error'); return; }
+  const readFile = () => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result);
+    r.onerror = () => reject(new Error('File read failed'));
+    r.onabort = () => reject(new Error('File read aborted'));
+    r.readAsArrayBuffer(f);
+  });
+  return runWithImportLoading(`Importing technicians to ${deptLabel(importDept)}...`, async () => {
+    try {
+      const data = await readFile();
+      lastImportedTechs = [];
+      const wb = XLSX.read(data, { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      let skipped = 0, updated = 0, created = 0;
+      for (const row of rows) {
+        if (row.ID && row.Name) {
+          const id = sanitize(row.ID.toString());
+          const payload = {
+            id,
+            name: sanitize(row.Name.toString()),
+            monthlyTarget: parseFloat(row.MonthlyTarget) || settings.defaultMonthlyTarget || 160,
+            status: sanitize(row.Status || '') || 'active',
+            password: sanitize(row.Password || '') || '',
+            department: importDept
+          };
+          const existing = techs.find(t => t.id === id);
+          if (existing) {
+            if (CR !== 'dev' && !canAccessManagedDepartment(existing.department || importDept)) { skipped++; continue; }
+            const merged = { ...existing, ...payload, department: importDept };
+            const saved = await DB.upsert('technicians', merged);
+            const idx = techs.findIndex(t => t.id === id);
+            if (idx > -1) techs[idx] = saved;
+            lastImportedTechs.push(saved);
+            updated++;
+          } else {
+            const saved = await DB.upsert('technicians', payload);
+            techs.push(saved);
+            lastImportedTechs.push(saved);
+            created++;
+          }
+        }
+      }
+      renderTechs();
+      syncAllDeptDropdowns();
+      toast(`Technician import complete: ${created} added, ${updated} updated${skipped ? `, ${skipped} skipped` : ''}. Department: ${deptLabel(importDept)}`);
+      closeModal('m-import-tech');
+      renderImportSummary('tech');
+    } catch (err) {
+      console.error(err);
+      toast('Import failed', 'error');
+    } finally {
+      if (input) input.value = '';
+    }
+  });
+};
+window.handlePartImport = function (input) {
+  if (!canI('parts', 'import')) { toast('Not allowed', 'error'); return; }
+  const f = input.files[0]; if (!f) return;
+  const importDept = enforceImportOwnerDepartment();
+  if (!importDept || (CR !== 'dev' && !canAccessManagedDepartment(importDept))) { toast('No allowed department available for import', 'error'); return; }
+  const readFile = () => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result);
+    r.onerror = () => reject(new Error('File read failed'));
+    r.onabort = () => reject(new Error('File read aborted'));
+    r.readAsArrayBuffer(f);
+  });
+  return runWithImportLoading(`Importing parts to ${deptLabel(importDept)}...`, async () => {
+    try {
+      const data = await readFile();
+      lastImportedParts = [];
+      const wb = XLSX.read(data, { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      let created = 0, updated = 0, skipped = 0;
+      for (const row of rows) {
+        if (row.Name && (row.Number || row.Num || row['Part Number'])) {
+          const num = sanitize((row.Number || row.Num || row['Part Number']).toString());
+          const payload = {
+            name: sanitize(row.Name.toString()),
+            num,
+            hours: parseFloat(row.Hours) || 1,
+            ata: sanitize(row.ATA || ''),
+            desc: sanitize(row.Description || row.Name.toString()),
+            department: importDept
+          };
+          const existing = parts.find(p => String(p.num || '').trim().toLowerCase() === num.toLowerCase());
+          if (existing) {
+            if (CR !== 'dev' && !canAccessManagedDepartment(normalizeExistingPartDepartment(existing) || importDept)) { skipped++; continue; }
+            const merged = { ...existing, ...payload, id: existing.id, department: importDept };
+            const saved = await DB.upsert('parts', merged);
+            const idx = parts.findIndex(p => p.id === existing.id);
+            if (idx > -1) parts[idx] = saved;
+            lastImportedParts.push(saved);
+            updated++;
+          } else {
+            const saved = await DB.upsert('parts', payload);
+            parts.push(saved);
+            lastImportedParts.push(saved);
+            created++;
+          }
+        }
+      }
+      renderParts();
+      syncAllDeptDropdowns();
+      toast(`Parts import complete: ${created} added, ${updated} updated${skipped ? `, ${skipped} skipped` : ''}. Department: ${deptLabel(importDept)}`);
+      closeModal('m-import-part');
+      renderImportSummary('part');
+    } catch (err) {
+      console.error(err);
+      toast('Import failed', 'error');
+    } finally {
+      if (input) input.value = '';
+    }
+  });
+};
+
+
+// ════════════════════════════════════════════════
+//  SESSION TIMEOUT + PASSWORD NON-PERSISTENCE PATCH
+//  - Auto logout after configurable inactivity period, default 30 minutes.
+//  - Timeout value is editable by admin/developer from System Settings.
+//  - App never stores login password and clears password fields after use.
+// ════════════════════════════════════════════════
+const PT_SESSION_ACTIVITY_KEY = 'pt-last-activity-at';
+const PT_SESSION_REASON_KEY = 'pt-session-timeout-reason';
+const PT_DEFAULT_TIMEOUT_MINUTES = 30;
+function getSessionTimeoutMinutes() {
+  const raw = Number(settings?.sessionTimeoutMinutes);
+  return Number.isFinite(raw) && raw > 0 ? raw : PT_DEFAULT_TIMEOUT_MINUTES;
+}
+function getSessionTimeoutMs() {
+  return getSessionTimeoutMinutes() * 60 * 1000;
+}
+function markSessionActivity() {
+  if (!CU || !CR) return;
+  try { sessionStorage.setItem(PT_SESSION_ACTIVITY_KEY, String(Date.now())); } catch (e) {}
+}
+function getLastSessionActivity() {
+  try { return Number(sessionStorage.getItem(PT_SESSION_ACTIVITY_KEY) || 0); } catch (e) { return 0; }
+}
+function clearPasswordInputs() {
+  ['li-pw', 'pwd-old', 'pwd-new', 'pwd-con', 'rp-new', 'dev-new-pw', 'rc-newpw'].forEach(id => {
+    try { const el = document.getElementById(id); if (el) el.value = ''; } catch (e) {}
+  });
+}
+function isSessionExpired() {
+  if (!CU || !CR) return false;
+  const last = getLastSessionActivity();
+  if (!last) return false;
+  return (Date.now() - last) > getSessionTimeoutMs();
+}
+function forceSessionTimeoutLogout() {
+  try { sessionStorage.setItem(PT_SESSION_REASON_KEY, 'Your session expired due to inactivity. Please sign in again.'); } catch (e) {}
+  clearPasswordInputs();
+  try { sessionStorage.removeItem('pt-session'); sessionStorage.removeItem(PT_SESSION_ACTIVITY_KEY); } catch (e) {}
+  CU = null; CR = null;
+  try { document.getElementById('app')?.classList.remove('on'); document.getElementById('login')?.classList.add('on'); } catch (e) {}
+  const hint = document.getElementById('login-attempts');
+  if (hint) { hint.style.display = 'block'; hint.textContent = 'Your session expired due to inactivity. Please sign in again.'; }
+  toast('Session expired. Please sign in again.', 'warning');
+}
+function requireActiveSessionForInteraction(event) {
+  if (!CU || !CR) return true;
+  if (isSessionExpired()) {
+    if (event) {
+      try { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); } catch (e) {}
+    }
+    forceSessionTimeoutLogout();
+    return false;
+  }
+  markSessionActivity();
+  return true;
+}
+['click', 'pointerdown', 'keydown', 'touchstart', 'change', 'submit'].forEach(evtName => {
+  document.addEventListener(evtName, requireActiveSessionForInteraction, true);
+});
+window.addEventListener('focus', () => { if (CU && CR && isSessionExpired()) forceSessionTimeoutLogout(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && CU && CR && isSessionExpired()) forceSessionTimeoutLogout(); });
+setInterval(() => { if (CU && CR && isSessionExpired()) forceSessionTimeoutLogout(); }, 60000);
+
+const _doLogin_sessionBase = doLogin;
+doLogin = async function () {
+  const result = await _doLogin_sessionBase.apply(this, arguments);
+  if (CU && CR) {
+    markSessionActivity();
+    clearPasswordInputs();
+    const hint = document.getElementById('login-attempts');
+    if (hint) { hint.style.display = 'none'; hint.textContent = ''; }
+  }
+  return result;
+};
+window.doLogin = doLogin;
+const _logout_sessionBase = window.logout || logout;
+window.logout = function () {
+  clearPasswordInputs();
+  try { sessionStorage.removeItem(PT_SESSION_ACTIVITY_KEY); sessionStorage.removeItem(PT_SESSION_REASON_KEY); } catch (e) {}
+  return _logout_sessionBase.apply(this, arguments);
+};
+logout = window.logout;
+function saveSessionTimeoutSetting() {
+  if (CR !== 'dev') { toast('Only Developer/Admin can change session timeout', 'error'); return; }
+  const input = document.getElementById('sys-session-timeout');
+  const value = Number(input?.value || PT_DEFAULT_TIMEOUT_MINUTES);
+  if (!Number.isFinite(value) || value < 1 || value > 1440) {
+    toast('Enter a timeout from 1 to 1440 minutes', 'error');
+    return;
+  }
+  settings.sessionTimeoutMinutes = Math.round(value);
+  persistSettings();
+  markSessionActivity();
+  toast(`Session timeout set to ${settings.sessionTimeoutMinutes} minute${settings.sessionTimeoutMinutes === 1 ? '' : 's'}`);
+}
+window.saveSessionTimeoutSetting = saveSessionTimeoutSetting;
+function injectSessionTimeoutSettingUI() {
+  const sysCb = document.querySelector('#pg-system .card .cb');
+  if (!sysCb || document.getElementById('sys-session-timeout-row')) return;
+  const value = getSessionTimeoutMinutes();
+  sysCb.insertAdjacentHTML('beforeend', `
+    <div class="srow" id="sys-session-timeout-row">
+      <div><div class="srl-t">Session Timeout</div><div class="srl-d">Auto logout after inactivity. Default is 30 minutes.</div></div>
+      <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end;">
+        <input class="finput" id="sys-session-timeout" min="1" max="1440" step="1" style="width:90px;" type="number" value="${value}"/>
+        <span style="font-size:12px;color:var(--tx2);font-weight:700;">min</span>
+        <button class="btn bp bsm" onclick="saveSessionTimeoutSetting()">Save</button>
+      </div>
+    </div>`);
+}
+const _renderSystem_sessionBase = typeof renderSystem === 'function' ? renderSystem : null;
+if (_renderSystem_sessionBase) {
+  renderSystem = function () {
+    const result = _renderSystem_sessionBase.apply(this, arguments);
+    injectSessionTimeoutSettingUI();
+    const input = document.getElementById('sys-session-timeout');
+    if (input) input.value = getSessionTimeoutMinutes();
+    return result;
+  };
+  window.renderSystem = renderSystem;
+}
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    const loginPw = document.getElementById('li-pw');
+    if (loginPw) {
+      loginPw.value = '';
+      loginPw.setAttribute('autocomplete', 'current-password');
+    }
+    const loginId = document.getElementById('li-id');
+    if (loginId) loginId.setAttribute('autocomplete', 'username');
+  } catch (e) {}
+  setTimeout(injectSessionTimeoutSettingUI, 900);
+  try {
+    const reason = sessionStorage.getItem(PT_SESSION_REASON_KEY);
+    if (reason) {
+      const hint = document.getElementById('login-attempts');
+      if (hint) { hint.style.display = 'block'; hint.textContent = reason; }
+      sessionStorage.removeItem(PT_SESSION_REASON_KEY);
+    }
+  } catch (e) {}
+});
+
 </script>
 </body>
 </html>
