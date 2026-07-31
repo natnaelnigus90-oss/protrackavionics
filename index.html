@@ -9270,6 +9270,175 @@ window.commitProductionImport = commitProductionImport;
 window.commitProdImportFromModal = commitProductionImport;
 window.commitProdImportResolved = commitProductionImport;
 
+
+// ════════════════════════════════════════════════
+//  DEFAULT PASSWORD MANAGEMENT PAGE PATCH
+//  Adds default-password modification directly on Password Management page.
+// ════════════════════════════════════════════════
+function getDefaultPasswordForRole(role) {
+  const defaults = { tech: 'tech123', lead: 'lead123', ctrl: 'ctrl123', mgr: 'mgr123' };
+  return settings?.passwords?.[role] || defaults[role] || '';
+}
+function setDefaultPasswordForRole(role, value) {
+  settings.passwords = { ...(settings.passwords || {}), [role]: value };
+}
+function roleListForDefaultPasswords() {
+  return [
+    { key: 'tech', label: 'Technician', table: 'technicians', listName: 'techs' },
+    { key: 'lead', label: 'Team Leader', table: 'leaders', listName: 'leaders' },
+    { key: 'ctrl', label: 'Production Controller', table: 'controllers', listName: 'controllers' },
+    { key: 'mgr', label: 'Manager', table: 'managers', listName: 'managers' }
+  ];
+}
+function injectDefaultPasswordManagementUI() {
+  const page = document.getElementById('pg-pwmgmt');
+  if (!page || document.getElementById('default-password-management-card')) return;
+  const grid = page.querySelector('div[style*="grid-template-columns"]') || page;
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.id = 'default-password-management-card';
+  card.innerHTML = `<div class="ch"><span class="ct">🔑 Default Password Modification</span></div><div class="cb">
+    <div class="al al-a" style="margin-bottom:12px;"><span class="al-ico">ℹ️</span><div>These defaults are used when a new user is created or imported without a password. Existing users are not changed unless you click an apply button.</div></div>
+    <div class="fg" style="margin-bottom:12px;">
+      <div class="fgroup"><label class="flabel">Technician Default</label><input autocomplete="new-password" class="finput" id="dp-tech" placeholder="Leave blank to keep current" type="password"/></div>
+      <div class="fgroup"><label class="flabel">Team Leader Default</label><input autocomplete="new-password" class="finput" id="dp-lead" placeholder="Leave blank to keep current" type="password"/></div>
+      <div class="fgroup"><label class="flabel">Controller Default</label><input autocomplete="new-password" class="finput" id="dp-ctrl" placeholder="Leave blank to keep current" type="password"/></div>
+      <div class="fgroup"><label class="flabel">Manager Default</label><input autocomplete="new-password" class="finput" id="dp-mgr" placeholder="Leave blank to keep current" type="password"/></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <button class="btn bp" onclick="saveDefaultPasswordsFromPage()">💾 Save Defaults</button>
+      <button class="btn bo" onclick="clearDefaultPasswordInputs()">Clear Fields</button>
+    </div>
+    <div style="border-top:1px solid var(--bdr);padding-top:12px;">
+      <div style="font-weight:800;margin-bottom:8px;color:var(--tx);">Apply Defaults to Users</div>
+      <div class="fg" style="margin-bottom:10px;">
+        <div class="fgroup"><label class="flabel">User Type</label><select class="fselect" id="dp-apply-role">
+          <option value="tech">Technician</option><option value="lead">Team Leader</option><option value="ctrl">Production Controller</option><option value="mgr">Manager</option>
+        </select></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn bo" onclick="applyDefaultPasswordToBlankUsersFromPage()">Apply to Blank Passwords Only</button>
+        <button class="btn bd" onclick="applyDefaultPasswordToAllUsersFromPage()">Reset All of This Type</button>
+      </div>
+      <div style="font-size:12px;color:var(--tx3);margin-top:8px;line-height:1.4;">Use “Blank Passwords Only” for newly imported users with no password. Use “Reset All” only when you intentionally want every user of that type to use the default password.</div>
+    </div>
+  </div>`;
+  grid.appendChild(card);
+}
+function clearDefaultPasswordInputs() {
+  ['dp-tech','dp-lead','dp-ctrl','dp-mgr'].forEach(id => sv(id, ''));
+}
+window.clearDefaultPasswordInputs = clearDefaultPasswordInputs;
+async function saveDefaultPasswordsFromPage() {
+  if (CR !== 'dev') { toast('Only Developer/Admin can modify default passwords', 'error'); return; }
+  const updates = roleListForDefaultPasswords().map(r => ({ ...r, value: sanitize(document.getElementById('dp-' + r.key)?.value || '') })).filter(r => r.value);
+  if (!updates.length) { toast('Enter at least one default password to save', 'error'); return; }
+  for (const upd of updates) {
+    if (upd.value.length < 4) { toast(`${upd.label} default password must be at least 4 characters`, 'error'); return; }
+  }
+  updates.forEach(upd => setDefaultPasswordForRole(upd.key, upd.value));
+  await persistSettings();
+  clearDefaultPasswordInputs();
+  toast(`Default password${updates.length === 1 ? '' : 's'} updated`);
+}
+window.saveDefaultPasswordsFromPage = saveDefaultPasswordsFromPage;
+async function applyDefaultPasswordToUsers(role, mode = 'blank') {
+  if (CR !== 'dev') { toast('Only Developer/Admin can apply default passwords', 'error'); return 0; }
+  const meta = roleListForDefaultPasswords().find(r => r.key === role);
+  if (!meta) { toast('Invalid user type', 'error'); return 0; }
+  const def = getDefaultPasswordForRole(role);
+  if (!def || def.length < 4) { toast(`Set a valid ${meta.label} default password first`, 'error'); return 0; }
+  const list = window[meta.listName] || [];
+  let changed = 0;
+  for (let i = 0; i < list.length; i++) {
+    const user = list[i];
+    if (!user) continue;
+    if (mode === 'blank' && user.password) continue;
+    const updated = { ...user, password: def };
+    await DB.upsert(meta.table, updated);
+    list[i] = updated;
+    changed++;
+  }
+  window[meta.listName] = list;
+  return changed;
+}
+async function applyDefaultPasswordToBlankUsersFromPage() {
+  const role = document.getElementById('dp-apply-role')?.value || 'tech';
+  const meta = roleListForDefaultPasswords().find(r => r.key === role);
+  const changed = await applyDefaultPasswordToUsers(role, 'blank');
+  toast(`Applied ${meta?.label || role} default password to ${changed} blank-password user${changed === 1 ? '' : 's'}`);
+}
+window.applyDefaultPasswordToBlankUsersFromPage = applyDefaultPasswordToBlankUsersFromPage;
+async function applyDefaultPasswordToAllUsersFromPage() {
+  const role = document.getElementById('dp-apply-role')?.value || 'tech';
+  const meta = roleListForDefaultPasswords().find(r => r.key === role);
+  if (!confirm(`Reset password for ALL ${meta?.label || role} users to the saved default password?`)) return;
+  const changed = await applyDefaultPasswordToUsers(role, 'all');
+  toast(`Reset ${changed} ${meta?.label || role} password${changed === 1 ? '' : 's'} to default`);
+}
+window.applyDefaultPasswordToAllUsersFromPage = applyDefaultPasswordToAllUsersFromPage;
+// Compatibility with existing Default Password modal, now includes controller and manager too.
+window.saveDefPwds = async function () {
+  const tp = sanitize(document.getElementById('def-tech-pwd')?.value || '');
+  const lp = sanitize(document.getElementById('def-lead-pwd')?.value || '');
+  const cp = sanitize(document.getElementById('def-ctrl-pwd')?.value || '');
+  const mp = sanitize(document.getElementById('def-mgr-pwd')?.value || '');
+  const values = [{key:'tech', value:tp}, {key:'lead', value:lp}, {key:'ctrl', value:cp}, {key:'mgr', value:mp}].filter(x => x.value);
+  if (!values.length) { toast('Enter at least one default password', 'error'); return; }
+  for (const v of values) { if (v.value.length < 4) { toast('Default passwords must be at least 4 characters', 'error'); return; } }
+  values.forEach(v => setDefaultPasswordForRole(v.key, v.value));
+  await persistSettings();
+  ['def-tech-pwd','def-lead-pwd','def-ctrl-pwd','def-mgr-pwd'].forEach(id => sv(id, ''));
+  closeModal('m-globalpwd');
+  toast('Default passwords updated');
+};
+['openAddTech','openAddLeader','openAddController','openAddManager'].forEach(fnName => {
+  const base = window[fnName];
+  if (typeof base === 'function') {
+    window[fnName] = function () {
+      const result = base.apply(this, arguments);
+      setTimeout(() => {
+        if (fnName === 'openAddTech') sv('mt-pwd', getDefaultPasswordForRole('tech'));
+        if (fnName === 'openAddLeader') sv('ml-pwd', getDefaultPasswordForRole('lead'));
+        if (fnName === 'openAddController') sv('mc-pwd', getDefaultPasswordForRole('ctrl'));
+        if (fnName === 'openAddManager') sv('mm-pwd', getDefaultPasswordForRole('mgr'));
+      }, 30);
+      return result;
+    };
+  }
+});
+// Keep imported technicians usable when the import file has no password.
+const _handleTechImport_defaultPwBase = typeof handleTechImport === 'function' ? handleTechImport : null;
+if (_handleTechImport_defaultPwBase) {
+  window.handleTechImport = async function (input) {
+    const result = await _handleTechImport_defaultPwBase.apply(this, arguments);
+    try {
+      const def = getDefaultPasswordForRole('tech');
+      if (def && Array.isArray(lastImportedTechs) && lastImportedTechs.length) {
+        for (const imported of lastImportedTechs) {
+          if (imported && !imported.password) {
+            imported.password = def;
+            await DB.upsert('technicians', imported);
+            const idx = techs.findIndex(t => t.id === imported.id);
+            if (idx > -1) techs[idx] = { ...techs[idx], password: def };
+          }
+        }
+      }
+    } catch (e) { console.warn('Default password post-import patch failed', e); }
+    return result;
+  };
+}
+const _showPage_defaultPwBase = typeof showPage === 'function' ? showPage : null;
+if (_showPage_defaultPwBase) {
+  showPage = function(page) {
+    const result = _showPage_defaultPwBase.apply(this, arguments);
+    if (page === 'pwmgmt') setTimeout(injectDefaultPasswordManagementUI, 80);
+    return result;
+  };
+  window.showPage = showPage;
+}
+document.addEventListener('DOMContentLoaded', () => setTimeout(injectDefaultPasswordManagementUI, 900));
+
 </script>
 </body>
 </html>
