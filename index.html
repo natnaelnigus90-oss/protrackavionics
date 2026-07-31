@@ -9439,6 +9439,156 @@ if (_showPage_defaultPwBase) {
 }
 document.addEventListener('DOMContentLoaded', () => setTimeout(injectDefaultPasswordManagementUI, 900));
 
+
+// ════════════════════════════════════════════════
+//  MANAGER MULTI-DEPARTMENT SELECTION PATCH
+//  Manager add/edit page now has a clear multi-select department picker with search, select all, and clear all.
+// ════════════════════════════════════════════════
+function getManagerAssignableDepartments() {
+  if (CR === 'dev') return Array.isArray(departments) ? departments : [];
+  const scope = typeof getAllowedManagedDepartments === 'function' ? getAllowedManagedDepartments() : currentUserDeptScope();
+  const allowed = new Set(Array.isArray(scope) ? scope : []);
+  return (Array.isArray(departments) ? departments : []).filter(d => allowed.has(d.id));
+}
+function normalizeManagerDepartments(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (typeof value === 'string' && value.trim()) return value.split(/[;,]+/).map(v => v.trim()).filter(Boolean);
+  return [];
+}
+function renderManagerDeptChecks(selected = []) {
+  const el = document.getElementById('mm-depts');
+  if (!el) return;
+  const selectedSet = new Set(normalizeManagerDepartments(selected));
+  const assignable = getManagerAssignableDepartments();
+  if (!assignable.length) {
+    el.innerHTML = `<div class="empty" style="width:100%;padding:12px;">No departments available for assignment</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div style="width:100%;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center;">
+      <input class="finput" id="mm-dept-search" style="max-width:240px;" placeholder="Search departments..." oninput="filterManagerDepartmentChecks()"/>
+      <button type="button" class="btn bo bsm" onclick="selectManagerDepartments('all')">Select All</button>
+      <button type="button" class="btn bo bsm" onclick="selectManagerDepartments('none')">Clear All</button>
+      <span id="mm-dept-count" style="font-size:12px;color:var(--tx2);font-weight:800;"></span>
+    </div>
+    <div id="mm-dept-list" style="width:100%;display:flex;flex-wrap:wrap;gap:8px;max-height:180px;overflow:auto;border:1px solid var(--bdr);border-radius:10px;padding:8px;background:var(--inp-bg);">
+      ${assignable.map(d => `<label class="mgr-dept-chk" data-dept-name="${escapeHtml(String(d.name || '').toLowerCase())}" data-dept-id="${escapeHtml(String(d.id || '').toLowerCase())}"><input type="checkbox" value="${escapeHtml(d.id)}" ${selectedSet.has(d.id) ? 'checked' : ''} onchange="updateManagerDepartmentCount()"/>${escapeHtml(d.name)}</label>`).join('')}
+    </div>`;
+  updateManagerDepartmentCount();
+}
+window.renderManagerDeptChecks = renderManagerDeptChecks;
+function updateManagerDepartmentCount() {
+  const countEl = document.getElementById('mm-dept-count');
+  if (!countEl) return;
+  const total = document.querySelectorAll('#mm-dept-list input[type="checkbox"]').length;
+  const checked = document.querySelectorAll('#mm-dept-list input[type="checkbox"]:checked').length;
+  countEl.textContent = `${checked} of ${total} selected`;
+}
+window.updateManagerDepartmentCount = updateManagerDepartmentCount;
+function filterManagerDepartmentChecks() {
+  const q = String(document.getElementById('mm-dept-search')?.value || '').trim().toLowerCase();
+  document.querySelectorAll('#mm-dept-list .mgr-dept-chk').forEach(label => {
+    const name = label.getAttribute('data-dept-name') || '';
+    const id = label.getAttribute('data-dept-id') || '';
+    label.style.display = !q || name.includes(q) || id.includes(q) ? 'flex' : 'none';
+  });
+}
+window.filterManagerDepartmentChecks = filterManagerDepartmentChecks;
+function selectManagerDepartments(mode) {
+  document.querySelectorAll('#mm-dept-list input[type="checkbox"]').forEach(input => {
+    const label = input.closest('.mgr-dept-chk');
+    const visible = !label || label.style.display !== 'none';
+    if (visible) input.checked = mode === 'all';
+  });
+  updateManagerDepartmentCount();
+}
+window.selectManagerDepartments = selectManagerDepartments;
+function getSelectedManagerDepartments() {
+  return Array.from(document.querySelectorAll('#mm-dept-list input[type="checkbox"]:checked')).map(el => el.value).filter(Boolean);
+}
+window.getSelectedManagerDepartments = getSelectedManagerDepartments;
+function renderManagers() {
+  const tbody = document.getElementById('mm-body');
+  if (!tbody) return;
+  tbody.innerHTML = (Array.isArray(managers) ? managers : []).map(m => {
+    const depts = normalizeManagerDepartments(m.departments);
+    return `<tr><td><div style="width:34px;height:34px;border-radius:50%;overflow:hidden;">${avatarHtml(m.id, m.name, 34)}</div></td>
+      <td class="mono" style="color:var(--blue);">${escapeHtml(m.id || '')}</td><td style="font-weight:600;">${sanitize(m.name || '')}</td>
+      <td>${depts.length ? depts.map(d => `<span class="bdg bblu" style="margin:2px;">${escapeHtml(deptLabel(d))}</span>`).join('') : '—'}</td>
+      <td><span class="bdg ${m.status === 'inactive' ? 'bgray' : 'bgr'}">${escapeHtml(m.status || 'active')}</span></td>
+      <td><div style="display:flex;gap:5px;"><button class="btn bo bsm" onclick="openEditManager('${escapeHtml(m.id)}')">✏️</button><button class="btn bd bsm" onclick="delManager('${escapeHtml(m.id)}')">🗑</button></div></td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="empty">No managers</td></tr>';
+}
+window.renderManagers = renderManagers;
+function clearManagerForm() {
+  editManagerId = null;
+  ['mm-id', 'mm-name', 'mm-pwd', 'mm-edit-id'].forEach(id => sv(id, ''));
+  const st = document.getElementById('mm-status'); if (st) st.value = 'active';
+  stxt('mm-form-title', '➕ New Manager');
+  renderManagerDeptChecks([]);
+}
+window.clearManagerForm = clearManagerForm;
+window.openAddManager = function () {
+  clearManagerForm();
+  const defaultPwd = typeof getDefaultPasswordForRole === 'function' ? getDefaultPasswordForRole('mgr') : '';
+  if (defaultPwd) sv('mm-pwd', defaultPwd);
+};
+window.openEditManager = function (id) {
+  const m = managers.find(x => x.id === id);
+  if (!m) return;
+  editManagerId = id;
+  sv('mm-id', m.id);
+  sv('mm-name', m.name);
+  sv('mm-pwd', m.password || '');
+  sv('mm-edit-id', id);
+  const st = document.getElementById('mm-status'); if (st) st.value = m.status || 'active';
+  stxt('mm-form-title', '✏️ Edit Manager');
+  renderManagerDeptChecks(normalizeManagerDepartments(m.departments));
+};
+window.saveManager = async function () {
+  const id = sanitize(document.getElementById('mm-id')?.value || '');
+  const name = sanitize(document.getElementById('mm-name')?.value || '');
+  if (!id || !name) { toast('ID and Name required', 'error'); return; }
+  const assignableIds = new Set(getManagerAssignableDepartments().map(d => d.id));
+  const depts = getSelectedManagerDepartments().filter(d => assignableIds.has(d));
+  if (!depts.length) { toast('Select at least one department', 'error'); return; }
+  const payload = {
+    id,
+    name,
+    departments: depts,
+    password: sanitize(document.getElementById('mm-pwd')?.value || '') || '',
+    status: document.getElementById('mm-status')?.value || 'active'
+  };
+  try {
+    if (editManagerId) {
+      const idx = managers.findIndex(x => x.id === editManagerId);
+      if (idx < 0) { toast('Manager not found', 'error'); return; }
+      await DB.upsert('managers', payload);
+      managers[idx] = payload;
+      toast('Manager updated with multiple departments');
+    } else {
+      if (managers.find(x => x.id === id)) { toast('ID exists', 'error'); return; }
+      const saved = await DB.upsert('managers', payload);
+      managers.push(saved);
+      toast('Manager added with multiple departments');
+    }
+    clearManagerForm();
+    renderManagers();
+  } catch (err) {
+    toast('Save failed: ' + (err?.message || err), 'error');
+  }
+};
+const _showPage_managerMultiBase = typeof showPage === 'function' ? showPage : null;
+if (_showPage_managerMultiBase) {
+  showPage = function(page) {
+    const result = _showPage_managerMultiBase.apply(this, arguments);
+    if (page === 'managers') setTimeout(() => { renderManagerDeptChecks([]); renderManagers(); }, 80);
+    return result;
+  };
+  window.showPage = showPage;
+}
+document.addEventListener('DOMContentLoaded', () => setTimeout(() => { renderManagerDeptChecks([]); }, 900));
+
 </script>
 </body>
 </html>
