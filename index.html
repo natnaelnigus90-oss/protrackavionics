@@ -9589,6 +9589,131 @@ if (_showPage_managerMultiBase) {
 }
 document.addEventListener('DOMContentLoaded', () => setTimeout(() => { renderManagerDeptChecks([]); }, 900));
 
+
+// ════════════════════════════════════════════════
+//  ASSIGNMENTS DEPARTMENT SCOPE PATCH
+//  Assignment page technician dropdowns, assignment list, create, and delete are limited to the user's allowed department scope.
+// ════════════════════════════════════════════════
+function getAssignmentAllowedDepartments() {
+  if (CR === 'dev') return (Array.isArray(departments) ? departments : []).map(d => d.id).filter(Boolean);
+  const scope = typeof getAllowedManagedDepartments === 'function' ? getAllowedManagedDepartments() : currentUserDeptScope();
+  return (Array.isArray(scope) ? scope : []).filter(Boolean);
+}
+function getAssignmentScopedTechs() {
+  const allowed = getAssignmentAllowedDepartments();
+  if (CR === 'dev') return (Array.isArray(techs) ? techs : []);
+  if (!allowed.length) return [];
+  return (Array.isArray(techs) ? techs : []).filter(t => t && t.department && allowed.includes(t.department));
+}
+function assignmentTechInScope(techId) {
+  const allowedIds = new Set(getAssignmentScopedTechs().map(t => t.id));
+  return allowedIds.has(techId);
+}
+function getAssignmentDepartmentFromTech(techId) {
+  const t = (Array.isArray(techs) ? techs : []).find(x => x.id === techId);
+  return t?.department || '';
+}
+function assignmentInScope(a) {
+  if (!a) return false;
+  const dept = a.department || getAssignmentDepartmentFromTech(a.techId);
+  if (CR === 'dev') return true;
+  return !!dept && getAssignmentAllowedDepartments().includes(dept);
+}
+function populateAsnSels() {
+  const scoped = getAssignmentScopedTechs().filter(t => t.status === 'active');
+  ['asn-tech', 'asn-ft'].forEach(id => {
+    const sel = document.getElementById(id); if (!sel) return;
+    const cur = sel.value;
+    const options = scoped.map(t => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)} (${escapeHtml(t.id)}) · ${escapeHtml(deptLabel(t.department))}</option>`).join('');
+    sel.innerHTML = (id === 'asn-ft' ? '<option value="">All scoped technicians</option>' : '<option value="">— Select scoped technician —</option>') + options;
+    if (cur && scoped.some(t => t.id === cur)) sel.value = cur;
+    else sel.value = '';
+  });
+}
+window.populateAsnSels = populateAsnSels;
+async function submitAssignment() {
+  if (!canI('assignments', 'create')) { toast('Not allowed', 'error'); return; }
+  const techId = document.getElementById('asn-tech')?.value;
+  const desc = sanitize(document.getElementById('asn-desc')?.value);
+  const hrs = sanitizeNum(document.getElementById('asn-hrs')?.value);
+  if (!techId || !desc || !hrs) { toast('Fill all required fields', 'error'); return; }
+  if (!assignmentTechInScope(techId)) { toast('You can assign only technicians in your department scope', 'error'); return; }
+  const tech = getAssignmentScopedTechs().find(t => t.id === techId);
+  const asn = {
+    techId,
+    techName: tech?.name || techId,
+    department: tech?.department || '',
+    desc,
+    hrs,
+    date: document.getElementById('asn-date')?.value || todayEAT(),
+    comment: sanitize(document.getElementById('asn-comment')?.value),
+    assignedBy: CU?.name || CU?.id || ''
+  };
+  try {
+    const saved = await DB.upsert('assignments', asn);
+    assignments.unshift(saved);
+    clearAssignment();
+    populateAsnSels();
+    renderAssignments();
+    toast('Assignment added');
+  } catch (e) { toast('Save failed: ' + (e?.message || e), 'error'); }
+}
+window.submitAssignment = submitAssignment;
+function renderAssignments() {
+  populateAsnSels();
+  const q = (document.getElementById('asn-q')?.value || '').toLowerCase();
+  const tf = document.getElementById('asn-ft')?.value || '';
+  const range = getUIRange('asn');
+  const scopedIds = new Set(getAssignmentScopedTechs().map(t => t.id));
+  let f = (Array.isArray(assignments) ? assignments : []).filter(a => {
+    if (!a) return false;
+    if (CR !== 'dev' && !scopedIds.has(a.techId)) return false;
+    if (!assignmentInScope(a)) return false;
+    if (tf && a.techId !== tf) return false;
+    if (!dateInRange(a.date, range.start, range.end)) return false;
+    if (q && !String(a.techName || '').toLowerCase().includes(q) && !String(a.desc || '').toLowerCase().includes(q) && !String(a.techId || '').toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const el = document.getElementById('asn-list');
+  if (!el) return;
+  if (!f.length) {
+    el.innerHTML = '<div class="empty"><div class="ei">📌</div><div class="et">No assignments in your department scope</div></div>';
+    return;
+  }
+  el.innerHTML = f.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).map(a => {
+    const dept = a.department || getAssignmentDepartmentFromTech(a.techId);
+    return `<div class="asn-card" style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
+      <div><div class="asn-hd"><div style="width:24px;height:24px;border-radius:50%;overflow:hidden;">${avatarHtml(a.techId, a.techName, 24)}</div><span class="asn-nm">${sanitize(a.techName)}</span><span class="bdg bblu" style="margin-left:6px;">${escapeHtml(deptLabel(dept))}</span></div>
+      <div class="asn-desc">${sanitize(a.desc)}</div>
+      <div class="asn-meta"><span class="asn-hrs">⏱ ${a.hrs}h</span><span>${fmtEAT(a.date, 'date')}</span><span>by ${sanitize(a.assignedBy || '')}</span></div>
+      ${a.comment ? `<div style="font-size:11px;color:var(--tx3);margin-top:4px;">💬 ${sanitize(a.comment)}</div>` : ''}</div>
+      <button class="btn bd bsm" style="${canI('assignments', 'delete') ? '' : 'display:none;'}" onclick="delAsn('${escapeHtml(a.id)}')">🗑</button></div>`;
+  }).join('');
+}
+window.renderAssignments = renderAssignments;
+window.delAsn = async function (id) {
+  if (!canI('assignments', 'delete')) { toast('Not allowed', 'error'); return; }
+  const target = (Array.isArray(assignments) ? assignments : []).find(a => a.id === id);
+  if (!target) { toast('Assignment not found', 'error'); return; }
+  if (!assignmentInScope(target)) { toast('You can delete only assignments in your department scope', 'error'); return; }
+  if (!confirm('Delete assignment?')) return;
+  try {
+    await DB.remove('assignments', id);
+    assignments = assignments.filter(a => a.id !== id);
+    renderAssignments();
+  } catch (e) { toast('Error', 'error'); }
+};
+const _showPage_assignmentScopeBase = typeof showPage === 'function' ? showPage : null;
+if (_showPage_assignmentScopeBase) {
+  showPage = function(page) {
+    const result = _showPage_assignmentScopeBase.apply(this, arguments);
+    if (page === 'assignments') setTimeout(() => { populateAsnSels(); renderAssignments(); }, 80);
+    return result;
+  };
+  window.showPage = showPage;
+}
+document.addEventListener('DOMContentLoaded', () => setTimeout(() => { populateAsnSels(); }, 900));
+
 </script>
 </body>
 </html>
