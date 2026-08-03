@@ -9714,6 +9714,122 @@ if (_showPage_assignmentScopeBase) {
 }
 document.addEventListener('DOMContentLoaded', () => setTimeout(() => { populateAsnSels(); }, 900));
 
+
+
+// PRODUCTION IMPORT UX ENHANCEMENTS v3.1.2
+// Skip rows without task codes, searchable existing-part/employee mapping, and prefilled Add Part.
+function ensureProdImportSearchModal(){
+  let modal=document.getElementById('m-prod-map-search'); if(modal)return modal;
+  modal=document.createElement('div'); modal.className='mbg'; modal.id='m-prod-map-search';
+  modal.innerHTML=`<div class="modal mmd"><div class="mhd"><div><div class="mttl" id="prod-map-title">Map existing record</div><div class="msub" id="prod-map-sub"></div></div><button class="mxb" onclick="closeModal('m-prod-map-search')">✕</button></div><div class="mbody"><input class="finput" id="prod-map-search" placeholder="Search..." oninput="renderProdImportSearchChoices()"><div id="prod-map-list" class="part-search-list" style="display:block;max-height:360px;margin-top:8px"></div></div><div class="mfoot"><button class="btn bo" onclick="closeModal('m-prod-map-search')">Cancel</button></div></div>`;
+  document.body.appendChild(modal); return modal;
+}
+let prodImportMapContext=null;
+function openProdImportSearch(rowIndex,type,saveDefault){
+  const target=getPreviewItemByRow(rowIndex); if(!target)return;
+  prodImportMapContext={rowIndex,type,saveDefault:!!saveDefault}; ensureProdImportSearchModal();
+  stxt('prod-map-title',type==='tech'?'Map Existing Employee':'Map Existing Part');
+  stxt('prod-map-sub',saveDefault?'The selected mapping will also be saved as the default for future imports.':'Search and select from existing records.');
+  const q=document.getElementById('prod-map-search'); q.value=''; q.placeholder=type==='tech'?'Search employee ID or name...':'Search part number, name, ATA, or department...';
+  renderProdImportSearchChoices(); openModal('m-prod-map-search'); setTimeout(()=>q.focus(),50);
+}
+function renderProdImportSearchChoices(){
+  const ctx=prodImportMapContext,list=document.getElementById('prod-map-list'); if(!ctx||!list)return;
+  const q=String(document.getElementById('prod-map-search')?.value||'').trim().toLowerCase();
+  const records=ctx.type==='tech'?(techs||[]):(parts||[]);
+  const filtered=records.filter(x=>ctx.type==='tech'?`${x.id||''} ${x.name||''} ${deptLabel(x.department)||''}`.toLowerCase().includes(q):`${x.num||''} ${x.name||''} ${x.ata||''} ${deptLabel(x.department)||''}`.toLowerCase().includes(q)).slice(0,100);
+  list.innerHTML=filtered.length?filtered.map(x=>ctx.type==='tech'?`<button class="part-search-item" onclick="chooseProdImportMap('${String(x.id).replace(/'/g,"\\'")}')"><div class="part-search-num">${escapeHtml(x.id||'—')}</div><div class="part-search-meta">${escapeHtml(x.name||'—')} · ${escapeHtml(deptLabel(x.department))}</div></button>`:`<button class="part-search-item" onclick="chooseProdImportMap('${String(x.id).replace(/'/g,"\\'")}')"><div class="part-search-num">${escapeHtml(x.num||'—')} · ${Number(x.hours||0).toFixed(2)}h</div><div class="part-search-meta">${escapeHtml(x.name||'—')} · ${escapeHtml(x.ata||'—')} · ${escapeHtml(deptLabel(x.department))}</div></button>`).join(''):'<div style="padding:14px;color:var(--tx3)">No matching existing record.</div>';
+}
+window.renderProdImportSearchChoices=renderProdImportSearchChoices;
+function chooseProdImportMap(id){
+  const ctx=prodImportMapContext,target=getPreviewItemByRow(ctx?.rowIndex); if(!ctx||!target)return;
+  if(ctx.type==='tech'){
+    const tech=(techs||[]).find(x=>String(x.id)===String(id)); if(!tech)return;
+    const source=getImportEmployeeKeysFromItem(target)[0]||target.entry?.techId||target.entry?.techName||tech.id;
+    if(ctx.saveDefault) saveProductionImportDefaultMap('employee',source,tech.id); else applyDefaultMapToAllPreviewRows('employee',source,tech.id);
+  }else{
+    const part=(parts||[]).find(x=>String(x.id)===String(id)); if(!part)return;
+    const source=getImportPartKeyFromItem(target)||target.entry?.pnum||part.num;
+    if(ctx.saveDefault) saveProductionImportDefaultMap('part',source,part.num); else applyDefaultMapToAllPreviewRows('part',source,part.num);
+  }
+  closeModal('m-prod-map-search'); validateProductionImportPreview(); toast(ctx.saveDefault?'Mapping selected and saved as default':'Existing record mapped');
+}
+window.chooseProdImportMap=chooseProdImportMap;
+function mapProductionImportRow(rowIndex,targetField){openProdImportSearch(rowIndex,targetField,false);}
+function mapProductionImportRowDefault(rowIndex,targetField){openProdImportSearch(rowIndex,targetField,true);}
+window.mapProductionImportRow=mapProductionImportRow; window.mapProductionImportRowDefault=mapProductionImportRowDefault;
+
+const _openAddPartForImport_v312=window.openAddPartForImport;
+function openAddPartForImport(rowIndex){
+  const target=getPreviewItemByRow(rowIndex); if(!target)return;
+  productionImportState.pendingRowIndex=rowIndex;
+  productionImportState.importCallback=()=>{const t=getPreviewItemByRow(rowIndex);if(t&&productionImportState.lastAddedPartNum){const p=findPartByNumber(productionImportState.lastAddedPartNum);t.entry={...t.entry,pnum:p?.num||productionImportState.lastAddedPartNum,pname:p?.name||productionImportState.lastAddedPartName||'',stdHours:p?.hours||0};}validateProductionImportPreview();};
+  openAddPart();
+  // Excel supplies name and number; user only needs to enter SDT hours.
+  const excelName=cleanImportField(target.entry?.pname||target.entry?.desc||target.rawSourceRow?.['PART NAME']||target.rawSourceRow?.['Part Name']||'');
+  const excelNum=cleanImportField(target.rawPartNumber||target.entry?.pnum||target.rawSourceRow?.['OEM P/N']||target.rawSourceRow?.['Part Number']||'');
+  sv('mp-name',excelName); sv('mp-num',excelNum); sv('mp-hours','');
+  const hours=document.getElementById('mp-hours'); if(hours){hours.placeholder='Enter SDT hours only';setTimeout(()=>hours.focus(),50);}
+}
+window.openAddPartForImport=openAddPartForImport;
+
+// Override final upload handler: rows with no Task Code are skipped by default; every other non-empty row is previewed.
+async function previewProductionImport(input){
+  const file=input?.files?.[0];if(!file)return;if(!window.XLSX){toast('Import library not loaded','error');return;}
+  return runWithImportLoading('Preparing production preview...',async()=>{try{
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}),ws=wb.Sheets[wb.SheetNames[0]],matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
+    if(!matrix.length)throw new Error('The worksheet is empty.');
+    const headers=matrix[0].map((h,i)=>String(h||'').trim()||`Column ${i+1}`),preview=[],skipped=[];let sourceCount=0;
+    for(let r=1;r<matrix.length;r++){
+      const raw=matrix[r]||[];if(!raw.some(v=>String(v??'').trim()!==''))continue;sourceCount++;
+      const row={};headers.forEach((h,i)=>row[h]=raw[i]??'');const rowNo=r+1,task=getImportTaskCodeFromRawRow(row);
+      if(!task){skipped.push({row:rowNo,reason:'No Task Code / WP ID — skipped by default'});continue;}
+      const built=buildEntriesFromRow(row,rowNo,raw)||[];
+      if(!built.length){preview.push({id:`excel-${rowNo}-unparsed`,row:rowNo,rawSourceRow:row,rawPartNumber:cleanImportField(row['OEM P/N']||row['Part Number']||''),entry:{taskCode:task,pname:cleanImportField(row['PART NAME']||row['Part Name']||''),pnum:cleanImportField(row['OEM P/N']||row['Part Number']||''),techId:'',techName:'',time:'',jobRole:'',jobType:''},status:'Needs review',reason:'Row could not be fully parsed',canImport:false,severity:'error'});continue;}
+      built.forEach((item,i)=>{item.id=item.id||`excel-${rowNo}-${i}`;item.rawSourceRow=row;item.rawPartNumber=item.rawPartNumber||item.entry?.pnum||cleanImportField(row['OEM P/N']||row['Part Number']||'');applyProductionImportDefaultMappingsToItem(item);resolveProductionImportDepartment(item);preview.push(item);});
+    }
+    productionImportState={fileName:file.name,rows:[],preview,autoSkipEmpty:true,previewTab:'all',pendingRowIndex:null,lastAddedTechId:'',lastAddedPartNum:'',lastAddedPartName:'',ignoreAlways:[],ignoredMissingEmployeeIds:[],selectionModalOpened:false,hiddenSkipped:skipped};saveProductionImportState();
+    const stepper=document.getElementById('prod-stepper');if(stepper)stepper.style.display='';setProdImportStep('uploaded');validateProductionImportPreview();recordProductionImportHiddenRows(skipped);toast(`Preview ready: ${preview.length} record${preview.length===1?'':'s'}; ${skipped.length} row${skipped.length===1?'':'s'} without Task Code skipped.`);
+  }catch(err){console.error(err);toast('Preview failed: '+(err?.message||err),'error');}finally{if(input)input.value='';}});
+}
+window.previewProductionImport=previewProductionImport;window.handleProdImportUpload=previewProductionImport;
+
+
+// Persistent Task Code + Case employee resolution
+const PROD_IMPORT_RESOLUTION_KEY='protrack-prod-import-id-resolutions-v1';
+function prodImportResolutionStore(){try{return JSON.parse(localStorage.getItem(PROD_IMPORT_RESOLUTION_KEY)||'{}')||{};}catch(e){return {};}}
+function prodImportResolutionKey(item){const task=String(item?.entry?.taskCode||'').trim().toUpperCase(),cs=String(item?.importCase||item?.entry?.importCase||item?.entry?.case||'').trim().toUpperCase();return task?task+'||'+(cs||'__NO_CASE__'):'';}
+function rememberProdImportResolution(item){const key=prodImportResolutionKey(item),selected=Array.isArray(item?.selectedEmployeeIds)?item.selectedEmployeeIds:[];if(!key||!selected.length)return;const employees=selected.map(x=>{const t=findTechByIdOrName(x.techId||x.rawId||x.techName);return t?{rawId:x.rawId||t.id,techId:t.id,techName:t.name}:null;}).filter(Boolean);if(!employees.length)return;const store=prodImportResolutionStore();store[key]={employees,updatedAt:new Date().toISOString()};try{localStorage.setItem(PROD_IMPORT_RESOLUTION_KEY,JSON.stringify(store));}catch(e){}}
+function applyRememberedProdImportResolution(item){const saved=prodImportResolutionStore()[prodImportResolutionKey(item)],employees=(saved?.employees||[]).map(x=>{const t=findTechByIdOrName(x.techId||x.rawId||x.techName);return t?{rawId:x.rawId||t.id,techId:t.id,techName:t.name}:null;}).filter(Boolean);if(!employees.length)return;item.selectedEmployeeIds=employees;item.employeeItems=employees.map(e=>({...e,valid:true,isValid:true,id:e.techId,name:e.techName}));item.hasMultipleEmployees=employees.length>1;item.entry={...(item.entry||{}),techId:employees[0].techId,techName:employees[0].techName};}
+const _validateImport_v313=validateProductionImportPreview;
+validateProductionImportPreview=function(){(productionImportState.preview||[]).forEach(applyRememberedProdImportResolution);const result=_validateImport_v313.apply(this,arguments);(productionImportState.preview||[]).forEach(i=>{if(i.selectedEmployeeIds?.length&&i.validationStatus!=='Needs selection')rememberProdImportResolution(i);});return result;};window.validateProductionImportPreview=validateProductionImportPreview;
+
+
+// DEPARTMENT-SCOPED IMPORT MAPPING v3.1.3
+// Mapping searches show only parts/employees belonging to the user's allowed department scope.
+function getProdImportMappingDepartments(){
+  if(CR==='dev') return (departments||[]).map(d=>d.id);
+  const scope=typeof getAllowedManagedDepartments==='function'?getAllowedManagedDepartments():currentUserDeptScope();
+  return [...new Set((scope||[]).filter(Boolean))];
+}
+function renderProdImportSearchChoices(){
+  const ctx=prodImportMapContext,list=document.getElementById('prod-map-list'); if(!ctx||!list)return;
+  const q=String(document.getElementById('prod-map-search')?.value||'').trim().toLowerCase();
+  const allowed=getProdImportMappingDepartments();
+  const allRecords=ctx.type==='tech'?(techs||[]):(parts||[]);
+  const scopedRecords=CR==='dev'?allRecords:allRecords.filter(x=>x.department&&allowed.includes(x.department));
+  const filtered=scopedRecords.filter(x=>ctx.type==='tech'
+    ?`${x.id||''} ${x.name||''} ${deptLabel(x.department)||''}`.toLowerCase().includes(q)
+    :`${x.num||''} ${x.name||''} ${x.ata||''} ${deptLabel(x.department)||''}`.toLowerCase().includes(q)).slice(0,100);
+  const scopeLabel=CR==='dev'?'all departments':allowed.map(deptLabel).join(', ')||'your department';
+  list.innerHTML=`<div style="padding:8px 12px;border-bottom:1px solid var(--bdr);font-size:11px;color:var(--tx3);">Showing records from <strong>${escapeHtml(scopeLabel)}</strong> only</div>`+
+    (filtered.length?filtered.map(x=>ctx.type==='tech'
+      ?`<button class="part-search-item" onclick="chooseProdImportMap('${String(x.id).replace(/'/g,"\\'")}')"><div class="part-search-num">${escapeHtml(x.id||'—')}</div><div class="part-search-meta">${escapeHtml(x.name||'—')} · ${escapeHtml(deptLabel(x.department))}</div></button>`
+      :`<button class="part-search-item" onclick="chooseProdImportMap('${String(x.id).replace(/'/g,"\\'")}')"><div class="part-search-num">${escapeHtml(x.num||'—')} · ${Number(x.hours||0).toFixed(2)}h</div><div class="part-search-meta">${escapeHtml(x.name||'—')} · ${escapeHtml(x.ata||'—')} · ${escapeHtml(deptLabel(x.department))}</div></button>`).join('')
+      :'<div style="padding:14px;color:var(--tx3)">No matching record exists in your department.</div>');
+}
+window.renderProdImportSearchChoices=renderProdImportSearchChoices;
+
 </script>
 </body>
 </html>
