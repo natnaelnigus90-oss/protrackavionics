@@ -9830,6 +9830,132 @@ function renderProdImportSearchChoices(){
 }
 window.renderProdImportSearchChoices=renderProdImportSearchChoices;
 
+
+// SKIP EXCEL ROWS WITHOUT EMPLOYEE ID v3.1.4
+function prodImportRawEmployeeValue(row){
+  if(!row)return '';
+  for(const key of ['TECH_ID','TechID','Technician ID','Employee ID','Tech ID','Tech','Technician','Employee','Employee IDs','Employee ID(s)']){
+    if(row[key]!==undefined&&String(row[key]??'').trim())return cleanImportField(row[key]);
+  }
+  return [row.AJ,row['AJ'],row.aj,row.AK,row['AK'],row.ak,row.AL,row['AL'],row.al,row.AM,row['AM'],row.am].map(cleanImportField).filter(Boolean).join(', ');
+}
+async function previewProductionImport(input){
+  const file=input?.files?.[0];if(!file)return;if(!window.XLSX){toast('Import library not loaded','error');return;}
+  return runWithImportLoading('Preparing production preview...',async()=>{try{
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}),ws=wb.Sheets[wb.SheetNames[0]],matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
+    if(!matrix.length)throw new Error('The worksheet is empty.');
+    const headers=matrix[0].map((h,i)=>String(h||'').trim()||`Column ${i+1}`),preview=[],skipped=[];
+    for(let r=1;r<matrix.length;r++){
+      const raw=matrix[r]||[];if(!raw.some(v=>String(v??'').trim()!==''))continue;
+      const row={};headers.forEach((h,i)=>row[h]=raw[i]??'');const rowNo=r+1,task=getImportTaskCodeFromRawRow(row);
+      if(!task){skipped.push({row:rowNo,reason:'No Task Code / WP ID — skipped by default'});continue;}
+      const employeeRaw=prodImportRawEmployeeValue(row);
+      if(!employeeRaw){skipped.push({row:rowNo,reason:'No Employee ID found in Excel row — skipped by default'});continue;}
+      const built=buildEntriesFromRow(row,rowNo,raw)||[];
+      if(!built.length){preview.push({id:`excel-${rowNo}-unparsed`,row:rowNo,rawSourceRow:row,rawEmployeeIds:employeeRaw,rawPartNumber:cleanImportField(row['OEM P/N']||row['Part Number']||''),entry:{taskCode:task,rawEmployeeIds:employeeRaw,pname:cleanImportField(row['PART NAME']||row['Part Name']||''),pnum:cleanImportField(row['OEM P/N']||row['Part Number']||''),techId:'',techName:'',time:'',jobRole:'',jobType:''},status:'Needs review',reason:'Row could not be fully parsed',canImport:false,severity:'error'});continue;}
+      built.forEach((item,i)=>{item.id=item.id||`excel-${rowNo}-${i}`;item.rawSourceRow=row;item.rawEmployeeIds=item.rawEmployeeIds||employeeRaw;item.rawPartNumber=item.rawPartNumber||item.entry?.pnum||cleanImportField(row['OEM P/N']||row['Part Number']||'');applyProductionImportDefaultMappingsToItem(item);resolveProductionImportDepartment(item);if(typeof applyRememberedProdImportResolution==='function')applyRememberedProdImportResolution(item);preview.push(item);});
+    }
+    productionImportState={fileName:file.name,rows:[],preview,autoSkipEmpty:true,previewTab:'all',pendingRowIndex:null,lastAddedTechId:'',lastAddedPartNum:'',lastAddedPartName:'',ignoreAlways:[],ignoredMissingEmployeeIds:[],selectionModalOpened:false,hiddenSkipped:skipped};saveProductionImportState();
+    const stepper=document.getElementById('prod-stepper');if(stepper)stepper.style.display='';setProdImportStep('uploaded');validateProductionImportPreview();recordProductionImportHiddenRows(skipped);
+    const noEmp=skipped.filter(x=>x.reason.includes('No Employee ID')).length,noTask=skipped.filter(x=>x.reason.includes('No Task Code')).length;
+    toast(`Preview ready: ${preview.length} record${preview.length===1?'':'s'}. Skipped ${noEmp} row${noEmp===1?'':'s'} without Employee ID and ${noTask} without Task Code.`);
+  }catch(err){console.error(err);toast('Preview failed: '+(err?.message||err),'error');}finally{if(input)input.value='';}});
+}
+window.previewProductionImport=previewProductionImport;window.handleProdImportUpload=previewProductionImport;
+
+
+// BACKEND IMPORT PREVIEW + MULTI-DEPARTMENT MANAGER DASHBOARD v3.1.5
+function prodImportBackendKey(){
+  const uid=String(CU?.id||'anonymous').trim().toLowerCase().replace(/[^a-z0-9_-]+/g,'_');
+  return `production_import_preview_${uid}`;
+}
+let prodImportBackendSaveTimer=null;
+async function saveProductionImportStateToBackend(){
+  if(!sb||!CU)return;
+  const key=prodImportBackendKey();
+  const value={...productionImportState,importCallback:null,savedBy:CU.id,savedAt:new Date().toISOString()};
+  try{
+    if(!Array.isArray(value.preview)||!value.preview.length){
+      await sb.from('app_settings').delete().eq('key',key);
+      return;
+    }
+    const {error}=await sb.from('app_settings').upsert({key,value},{onConflict:'key'});
+    if(error)throw error;
+  }catch(e){console.warn('Backend preview save failed:',e);toast('Could not save Import Preview to backend','error');}
+}
+function saveProductionImportState(){
+  // Preview data is intentionally not stored in sessionStorage/localStorage.
+  clearTimeout(prodImportBackendSaveTimer);
+  prodImportBackendSaveTimer=setTimeout(saveProductionImportStateToBackend,250);
+}
+window.saveProductionImportState=saveProductionImportState;
+async function restoreProductionImportState(){
+  if(!sb||!CU)return false;
+  try{
+    const {data,error}=await sb.from('app_settings').select('value').eq('key',prodImportBackendKey()).maybeSingle();
+    if(error)throw error;
+    if(!data?.value||!Array.isArray(data.value.preview))return false;
+    productionImportState={...productionImportState,...data.value,preview:data.value.preview,hiddenSkipped:data.value.hiddenSkipped||[],selectionModalOpened:false,importCallback:null};
+    renderImportProduction();recordProductionImportHiddenRows(productionImportState.hiddenSkipped||[]);refreshProductionImportSummary(productionImportState.preview);return true;
+  }catch(e){console.warn('Backend preview restore failed:',e);return false;}
+}
+window.restoreProductionImportState=restoreProductionImportState;
+try{sessionStorage.removeItem(PROD_IMPORT_STATE_KEY);}catch(e){}
+const _doLogin_backendPreview=doLogin;
+doLogin=async function(){const result=await _doLogin_backendPreview.apply(this,arguments);if(CU)await restoreProductionImportState();return result;};window.doLogin=doLogin;
+
+// Ensure Clear Preview removes the backend preview only when no rows remain.
+const _clearProductionImportPreview_backend=clearProductionImportPreview;
+clearProductionImportPreview=function(){
+  const result=_clearProductionImportPreview_backend.apply(this,arguments);
+  setTimeout(()=>saveProductionImportStateToBackend(),0);
+  return result;
+};window.clearProductionImportPreview=clearProductionImportPreview;
+
+let managerDashboardSelectedDepartments=[];
+function getManagerDashboardDepartments(){
+  const assigned=CR==='mgr'?(Array.isArray(CU?.departments)?CU.departments:[]):currentUserDeptScope();
+  return [...new Set((assigned||[]).filter(Boolean))];
+}
+function ensureManagerDashboardDepartmentPanel(){
+  const page=document.getElementById('pg-dashboard');if(!page||CR!=='mgr')return null;
+  let panel=document.getElementById('mgr-dashboard-dept-panel');
+  if(!panel){
+    panel=document.createElement('div');panel.id='mgr-dashboard-dept-panel';panel.className='card';
+    panel.innerHTML=`<div class="ch"><span class="ct">🏢 Assigned Department Progress</span><div style="display:flex;gap:6px"><button class="btn bo bsm" onclick="selectAllManagerDashboardDepartments(true)">Select All</button><button class="btn bo bsm" onclick="selectAllManagerDashboardDepartments(false)">Clear</button></div></div><div class="cb"><div id="mgr-dashboard-dept-options" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div><div id="mgr-dashboard-dept-cards" class="kg k3" style="margin-bottom:0"></div></div>`;
+    const toolbar=page.querySelector('.tbr');if(toolbar)toolbar.insertAdjacentElement('afterend',panel);else page.prepend(panel);
+  }
+  return panel;
+}
+function selectAllManagerDashboardDepartments(all){managerDashboardSelectedDepartments=all?getManagerDashboardDepartments():[];renderManagerDepartmentProgress();}
+window.selectAllManagerDashboardDepartments=selectAllManagerDashboardDepartments;
+function toggleManagerDashboardDepartment(id,checked){
+  const set=new Set(managerDashboardSelectedDepartments);if(checked)set.add(id);else set.delete(id);managerDashboardSelectedDepartments=[...set];renderManagerDepartmentProgress();
+}
+window.toggleManagerDashboardDepartment=toggleManagerDashboardDepartment;
+function renderManagerDepartmentProgress(){
+  if(CR!=='mgr')return;ensureManagerDashboardDepartmentPanel();
+  const assigned=getManagerDashboardDepartments();
+  if(!managerDashboardSelectedDepartments.length)managerDashboardSelectedDepartments=[...assigned];
+  managerDashboardSelectedDepartments=managerDashboardSelectedDepartments.filter(id=>assigned.includes(id));
+  const options=document.getElementById('mgr-dashboard-dept-options'),cards=document.getElementById('mgr-dashboard-dept-cards');if(!options||!cards)return;
+  options.innerHTML=assigned.map(id=>`<label class="mgr-dept-chk"><input type="checkbox" ${managerDashboardSelectedDepartments.includes(id)?'checked':''} onchange="toggleManagerDashboardDepartment('${id}',this.checked)"><span>${escapeHtml(deptLabel(id))}</span></label>`).join('');
+  const range=getUIRange('dash');
+  cards.innerHTML=managerDashboardSelectedDepartments.map(id=>{
+    const deptTechs=techs.filter(t=>t.department===id&&t.status==='active');
+    const ids=new Set(deptTechs.map(t=>t.id));
+    const deptEntries=entries.filter(e=>ids.has(e.techId)&&dateInRange(e.time,range.start,range.end)&&isSDT(e)&&isApprovedEntry(e));
+    const actual=deptEntries.reduce((sum,e)=>sum+getDividedHours(e,entries),0);
+    const target=deptTechs.reduce((sum,t)=>sum+(t.monthlyTarget||160),0);
+    const pct=target?Math.round(actual/target*100):0;
+    const color=pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--rose)';
+    return `<div class="kc"><div class="kac" style="background:${color}"></div><div class="kl">${escapeHtml(deptLabel(id))}</div><div class="kv" style="color:${color}">${pct}%</div><div class="ks">${actual.toFixed(1)} / ${target.toFixed(1)} Hrs · ${deptTechs.length} active tech${deptTechs.length===1?'':'s'}</div><div class="kpb"><div class="kpb-bg"><div class="kpb-f" style="width:${Math.min(100,pct)}%;background:${color}"></div></div></div></div>`;
+  }).join('')||'<div class="empty" style="grid-column:1/-1">Select one or more assigned departments.</div>';
+}
+window.renderManagerDepartmentProgress=renderManagerDepartmentProgress;
+const _renderDashboard_multiDept=renderDashboard;
+renderDashboard=function(){const result=_renderDashboard_multiDept.apply(this,arguments);renderManagerDepartmentProgress();return result;};window.renderDashboard=renderDashboard;
+
 </script>
 </body>
 </html>
