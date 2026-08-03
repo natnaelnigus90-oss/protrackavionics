@@ -10059,6 +10059,131 @@ const _renderSystem_roleColumns=renderSystem;
 renderSystem=function(){const result=_renderSystem_roleColumns.apply(this,arguments);ensureProdImportRoleColumnSettings();loadProdImportRoleColumnInputs();return result;};window.renderSystem=renderSystem;
 document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>{ensureProdImportRoleColumnSettings();},700));
 
+
+// STRICT ROLE-SPECIFIC EMPLOYEE IMPORT v3.1.7
+// Each role reads only its own configured Excel column. No employee selection may leak to another role.
+function strictRoleEmployeeFromColumn(rawRow,role){
+  const c=getProdImportRoleColumns();
+  const column=role==='Inspector'?c.inspector:role==='Technician'?c.technician:role==='Under Supervision'?c.underSupervision:c.preliminary;
+  return {role,column,rawId:readRawExcelColumn(rawRow,column)};
+}
+function getConfiguredRoleEmployees(rawRow){
+  return ['Inspector','Technician','Under Supervision','Preliminary Inspector']
+    .map(role=>strictRoleEmployeeFromColumn(rawRow,role))
+    .filter(x=>String(x.rawId||'').trim());
+}
+
+// Remembered employee resolutions must be role-specific as well as Task Code + Case-specific.
+function prodImportResolutionKey(item){
+  const task=String(item?.entry?.taskCode||'').trim().toUpperCase().replace(/\s+/g,' ');
+  const cs=String(item?.importCase||item?.entry?.importCase||item?.entry?.case||'').trim().toUpperCase().replace(/\s+/g,' ');
+  const role=String(item?.entry?.jobRole||'').trim().toUpperCase().replace(/\s+/g,' ');
+  return task&&role?`${task}||${cs||'__NO_CASE__'}||${role}`:'';
+}
+
+function buildConfiguredRoleImportItems(row,rowNo,rawRow){
+  const roleEmployees=getConfiguredRoleEmployees(rawRow);
+  if(!roleEmployees.length)return[];
+  const baseBuilt=buildEntriesFromRow(row,rowNo,rawRow)||[];
+  const sourceBase=baseBuilt[0];
+  if(!sourceBase)return[];
+  return roleEmployees.map((source,index)=>{
+    // Create a fully isolated entry object for every role.
+    const item={
+      ...sourceBase,
+      id:`excel-${rowNo}-${source.role.replace(/\s+/g,'-').toLowerCase()}-${index}`,
+      row:rowNo,
+      entry:{...(sourceBase.entry||{})},
+      employeeItems:[],
+      selectedEmployeeIds:[],
+      hasMultipleEmployees:false,
+      defaultMappedEmployee:false,
+      resolutionRemembered:false
+    };
+    item.entry.jobRole=source.role;
+    item.employeeSourceColumn=source.column;
+    item.rawEmployeeIds=source.rawId;
+    item.entry.rawEmployeeIds=source.rawId;
+    item.entry.techId='';
+    item.entry.techName='';
+
+    // Resolve only the ID read from this role's configured column.
+    const tech=findTechByIdOrName(source.rawId);
+    if(tech){
+      item.entry.techId=tech.id;
+      item.entry.techName=tech.name;
+      item.employeeItems=[{rawId:source.rawId,techId:tech.id,techName:tech.name,valid:true,isValid:true,id:tech.id,name:tech.name}];
+      item.selectedEmployeeIds=[{rawId:source.rawId,techId:tech.id,techName:tech.name}];
+    }else{
+      item.entry.techId=source.rawId;
+      item.employeeItems=[{rawId:source.rawId,techId:'',techName:'',valid:false,isValid:false,id:'',name:''}];
+    }
+    const part=findPartByNumber(item.entry.pnum);
+    if(part)item.entry.hours=calcPoolHrs(part,source.role,item.entry.taskCode);
+    return item;
+  });
+}
+
+async function previewProductionImport(input){
+  const file=input?.files?.[0];if(!file)return;if(!window.XLSX){toast('Import library not loaded','error');return;}
+  return runWithImportLoading('Preparing role-based production preview...',async()=>{try{
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
+    if(!matrix.length)throw new Error('The worksheet is empty.');
+    const headers=matrix[0].map((h,i)=>String(h||'').trim()||`Column ${i+1}`);
+    const preview=[],skipped=[],columns=getProdImportRoleColumns();
+    for(let r=1;r<matrix.length;r++){
+      const raw=matrix[r]||[];
+      if(!raw.some(v=>String(v??'').trim()!==''))continue;
+      const row={};headers.forEach((h,i)=>row[h]=raw[i]??'');
+      const rowNo=r+1,task=getImportTaskCodeFromRawRow(row);
+      if(!task){skipped.push({row:rowNo,reason:'No Task Code / WP ID — skipped by default'});continue;}
+      const roleEmployees=getConfiguredRoleEmployees(raw);
+      if(!roleEmployees.length){skipped.push({row:rowNo,reason:`No Employee ID found in configured role columns (${columns.inspector}, ${columns.technician}, ${columns.underSupervision}, ${columns.preliminary}) — skipped by default`});continue;}
+      const items=buildConfiguredRoleImportItems(row,rowNo,raw);
+      if(!items.length){skipped.push({row:rowNo,reason:'Required import data could not be parsed'});continue;}
+      items.forEach(item=>{
+        item.rawSourceRow=row;
+        item.rawPartNumber=item.rawPartNumber||item.entry?.pnum||cleanImportField(row['OEM P/N']||row['Part Number']||'');
+        // Apply part defaults independently. Employee defaults use this role's raw ID only.
+        const maps=getProductionImportDefaultMaps();
+        const partSource=getImportPartKeyFromItem(item);
+        const mappedPart=maps.parts[productionImportMapKey(partSource)];
+        if(mappedPart){
+          const p=findPartByNumber(mappedPart);
+          if(p){item.entry.pnum=p.num;item.entry.pname=p.name;item.entry.stdHours=p.hours;item.entry.hours=calcPoolHrs(p,item.entry.jobRole,item.entry.taskCode);item.defaultMappedPart=true;}
+        }
+        const mappedEmployee=maps.employees[productionImportMapKey(item.rawEmployeeIds)];
+        if(mappedEmployee){
+          const t=findTechByIdOrName(mappedEmployee);
+          if(t){item.entry.techId=t.id;item.entry.techName=t.name;item.selectedEmployeeIds=[{rawId:item.rawEmployeeIds,techId:t.id,techName:t.name}];item.employeeItems=[{rawId:item.rawEmployeeIds,techId:t.id,techName:t.name,valid:true,isValid:true,id:t.id,name:t.name}];item.defaultMappedEmployee=true;}
+        }
+        resolveProductionImportDepartment(item);
+        if(typeof applyRememberedProdImportResolution==='function')applyRememberedProdImportResolution(item);
+        preview.push(item);
+      });
+    }
+    productionImportState={fileName:file.name,rows:[],preview,autoSkipEmpty:true,previewTab:'all',pendingRowIndex:null,lastAddedTechId:'',lastAddedPartNum:'',lastAddedPartName:'',ignoreAlways:[],ignoredMissingEmployeeIds:[],selectionModalOpened:false,hiddenSkipped:skipped,roleColumns:columns};
+    saveProductionImportState();
+    const stepper=document.getElementById('prod-stepper');if(stepper)stepper.style.display='';
+    setProdImportStep('uploaded');validateProductionImportPreview();recordProductionImportHiddenRows(skipped);
+    toast(`Preview ready: ${preview.length} role-specific entries. Inspector ${columns.inspector}, Technician ${columns.technician}, Under Supervision ${columns.underSupervision}, Preliminary ${columns.preliminary}.`);
+  }catch(err){console.error(err);toast('Preview failed: '+(err?.message||err),'error');}finally{if(input)input.value='';}});
+}
+window.previewProductionImport=previewProductionImport;
+window.handleProdImportUpload=previewProductionImport;
+
+// Remove only the Developer/System-page TV leaderboard card.
+function removeAdminTvLeaderboard(){
+  const card=document.getElementById('dev-lb-card');
+  if(card)card.remove();
+}
+const _renderSystem_withoutTvLeaderboard=renderSystem;
+renderSystem=function(){const result=_renderSystem_withoutTvLeaderboard.apply(this,arguments);removeAdminTvLeaderboard();return result;};
+window.renderSystem=renderSystem;
+document.addEventListener('DOMContentLoaded',()=>setTimeout(removeAdminTvLeaderboard,300));
+
 </script>
 </body>
 </html>
