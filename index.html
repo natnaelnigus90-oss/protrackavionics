@@ -10184,6 +10184,109 @@ renderSystem=function(){const result=_renderSystem_withoutTvLeaderboard.apply(th
 window.renderSystem=renderSystem;
 document.addEventListener('DOMContentLoaded',()=>setTimeout(removeAdminTvLeaderboard,300));
 
+
+// MULTIPLE EMPLOYEE IDS PER ROLE COLUMN v3.1.8
+// Values separated by comma, semicolon, slash, line break, or spaces are handled as separate employee IDs.
+function splitRoleEmployeeIds(value){
+  return [...new Set(String(value||'')
+    .split(/[,;\n\r\/|]+/)
+    .map(v=>v.trim())
+    .filter(Boolean))];
+}
+function getConfiguredRoleEmployees(rawRow){
+  return ['Inspector','Technician','Under Supervision','Preliminary Inspector']
+    .map(role=>{
+      const source=strictRoleEmployeeFromColumn(rawRow,role);
+      return {...source,employeeIds:splitRoleEmployeeIds(source.rawId)};
+    })
+    .filter(source=>source.employeeIds.length);
+}
+function buildConfiguredRoleImportItems(row,rowNo,rawRow){
+  const roleSources=getConfiguredRoleEmployees(rawRow);
+  if(!roleSources.length)return[];
+  const baseBuilt=buildEntriesFromRow(row,rowNo,rawRow)||[];
+  const sourceBase=baseBuilt[0];
+  if(!sourceBase)return[];
+  return roleSources.map((source,index)=>{
+    const item={
+      ...sourceBase,
+      id:`excel-${rowNo}-${source.role.replace(/\s+/g,'-').toLowerCase()}-${index}`,
+      row:rowNo,
+      entry:{...(sourceBase.entry||{})},
+      employeeItems:[],
+      selectedEmployeeIds:[],
+      hasMultipleEmployees:source.employeeIds.length>1,
+      defaultMappedEmployee:false,
+      resolutionRemembered:false
+    };
+    item.entry.jobRole=source.role;
+    item.employeeSourceColumn=source.column;
+    item.rawEmployeeIds=source.employeeIds.join(',');
+    item.entry.rawEmployeeIds=item.rawEmployeeIds;
+    item.entry.techId='';
+    item.entry.techName='';
+
+    // Resolve every ID independently and preserve all IDs engaged in this role.
+    item.employeeItems=source.employeeIds.map(rawId=>{
+      const direct=findTechByIdOrName(rawId);
+      const maps=getProductionImportDefaultMaps();
+      const mappedId=maps.employees[productionImportMapKey(rawId)];
+      const mapped=mappedId?findTechByIdOrName(mappedId):null;
+      const tech=direct||mapped;
+      return {rawId,techId:tech?.id||'',techName:tech?.name||'',valid:!!tech,isValid:!!tech,id:tech?.id||'',name:tech?.name||''};
+    });
+    item.selectedEmployeeIds=item.employeeItems.filter(e=>e.valid).map(e=>({rawId:e.rawId,techId:e.techId,techName:e.techName}));
+    if(item.selectedEmployeeIds.length){
+      item.entry.techId=item.selectedEmployeeIds[0].techId;
+      item.entry.techName=item.selectedEmployeeIds[0].techName;
+    }else{
+      item.entry.techId=source.employeeIds[0]||'';
+    }
+    const part=findPartByNumber(item.entry.pnum);
+    if(part)item.entry.hours=calcPoolHrs(part,source.role,item.entry.taskCode);
+    return item;
+  });
+}
+
+// Keep multiple selected employees intact during validation instead of reducing the role to one ID.
+const _validateProductionImportPreview_multiEmployee=validateProductionImportPreview;
+validateProductionImportPreview=function(){
+  const before=new Map();
+  (productionImportState.preview||[]).forEach(item=>{
+    const key=String(item.id||item.row);
+    before.set(key,{
+      rawEmployeeIds:item.rawEmployeeIds,
+      employeeItems:Array.isArray(item.employeeItems)?item.employeeItems.map(x=>({...x})):[],
+      selectedEmployeeIds:Array.isArray(item.selectedEmployeeIds)?item.selectedEmployeeIds.map(x=>({...x})):[],
+      hasMultipleEmployees:!!item.hasMultipleEmployees
+    });
+  });
+  const result=_validateProductionImportPreview_multiEmployee.apply(this,arguments);
+  (productionImportState.preview||[]).forEach(item=>{
+    const saved=before.get(String(item.id||item.row));
+    if(!saved||splitRoleEmployeeIds(saved.rawEmployeeIds).length<2)return;
+    const valid=saved.employeeItems.filter(e=>e.valid||e.isValid).map(e=>({rawId:e.rawId,techId:e.techId||e.id,techName:e.techName||e.name}));
+    item.rawEmployeeIds=saved.rawEmployeeIds;
+    item.entry={...(item.entry||{}),rawEmployeeIds:saved.rawEmployeeIds};
+    item.employeeItems=saved.employeeItems;
+    item.selectedEmployeeIds=valid;
+    item.hasMultipleEmployees=true;
+    if(valid.length){item.entry.techId=valid[0].techId;item.entry.techName=valid[0].techName;}
+    const missing=saved.employeeItems.filter(e=>!(e.valid||e.isValid));
+    if(missing.length){
+      item.status=valid.length?'Partial match':'Missing employee';
+      item.validationStatus=item.status;
+      item.reason=valid.length?`Found ${valid.length} valid employee${valid.length===1?'':'s'} and ${missing.length} missing ID${missing.length===1?'':'s'}`:'No valid employee found';
+      item.canImport=false;item.severity=valid.length?'warning':'error';
+    }else{
+      item.status='Ready';item.validationStatus='Ready';item.reason='';item.canImport=true;item.severity='ok';item.isSkipped=false;
+    }
+  });
+  saveProductionImportState();renderImportProduction();refreshProductionImportSummary(productionImportState.preview);
+  return result;
+};
+window.validateProductionImportPreview=validateProductionImportPreview;
+
 </script>
 </body>
 </html>
