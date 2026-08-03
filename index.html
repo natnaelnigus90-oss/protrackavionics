@@ -9804,6 +9804,261 @@ function applyRememberedProdImportResolution(item){const saved=prodImportResolut
 const _validateImport_v313=validateProductionImportPreview;
 validateProductionImportPreview=function(){(productionImportState.preview||[]).forEach(applyRememberedProdImportResolution);const result=_validateImport_v313.apply(this,arguments);(productionImportState.preview||[]).forEach(i=>{if(i.selectedEmployeeIds?.length&&i.validationStatus!=='Needs selection')rememberProdImportResolution(i);});return result;};window.validateProductionImportPreview=validateProductionImportPreview;
 
+
+// DEPARTMENT-SCOPED IMPORT MAPPING v3.1.3
+// Mapping searches show only parts/employees belonging to the user's allowed department scope.
+function getProdImportMappingDepartments(){
+  if(CR==='dev') return (departments||[]).map(d=>d.id);
+  const scope=typeof getAllowedManagedDepartments==='function'?getAllowedManagedDepartments():currentUserDeptScope();
+  return [...new Set((scope||[]).filter(Boolean))];
+}
+function renderProdImportSearchChoices(){
+  const ctx=prodImportMapContext,list=document.getElementById('prod-map-list'); if(!ctx||!list)return;
+  const q=String(document.getElementById('prod-map-search')?.value||'').trim().toLowerCase();
+  const allowed=getProdImportMappingDepartments();
+  const allRecords=ctx.type==='tech'?(techs||[]):(parts||[]);
+  const scopedRecords=CR==='dev'?allRecords:allRecords.filter(x=>x.department&&allowed.includes(x.department));
+  const filtered=scopedRecords.filter(x=>ctx.type==='tech'
+    ?`${x.id||''} ${x.name||''} ${deptLabel(x.department)||''}`.toLowerCase().includes(q)
+    :`${x.num||''} ${x.name||''} ${x.ata||''} ${deptLabel(x.department)||''}`.toLowerCase().includes(q)).slice(0,100);
+  const scopeLabel=CR==='dev'?'all departments':allowed.map(deptLabel).join(', ')||'your department';
+  list.innerHTML=`<div style="padding:8px 12px;border-bottom:1px solid var(--bdr);font-size:11px;color:var(--tx3);">Showing records from <strong>${escapeHtml(scopeLabel)}</strong> only</div>`+
+    (filtered.length?filtered.map(x=>ctx.type==='tech'
+      ?`<button class="part-search-item" onclick="chooseProdImportMap('${String(x.id).replace(/'/g,"\\'")}')"><div class="part-search-num">${escapeHtml(x.id||'—')}</div><div class="part-search-meta">${escapeHtml(x.name||'—')} · ${escapeHtml(deptLabel(x.department))}</div></button>`
+      :`<button class="part-search-item" onclick="chooseProdImportMap('${String(x.id).replace(/'/g,"\\'")}')"><div class="part-search-num">${escapeHtml(x.num||'—')} · ${Number(x.hours||0).toFixed(2)}h</div><div class="part-search-meta">${escapeHtml(x.name||'—')} · ${escapeHtml(x.ata||'—')} · ${escapeHtml(deptLabel(x.department))}</div></button>`).join('')
+      :'<div style="padding:14px;color:var(--tx3)">No matching record exists in your department.</div>');
+}
+window.renderProdImportSearchChoices=renderProdImportSearchChoices;
+
+
+// SKIP EXCEL ROWS WITHOUT EMPLOYEE ID v3.1.4
+function prodImportRawEmployeeValue(row){
+  if(!row)return '';
+  for(const key of ['TECH_ID','TechID','Technician ID','Employee ID','Tech ID','Tech','Technician','Employee','Employee IDs','Employee ID(s)']){
+    if(row[key]!==undefined&&String(row[key]??'').trim())return cleanImportField(row[key]);
+  }
+  return [row.AJ,row['AJ'],row.aj,row.AK,row['AK'],row.ak,row.AL,row['AL'],row.al,row.AM,row['AM'],row.am].map(cleanImportField).filter(Boolean).join(', ');
+}
+async function previewProductionImport(input){
+  const file=input?.files?.[0];if(!file)return;if(!window.XLSX){toast('Import library not loaded','error');return;}
+  return runWithImportLoading('Preparing production preview...',async()=>{try{
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}),ws=wb.Sheets[wb.SheetNames[0]],matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
+    if(!matrix.length)throw new Error('The worksheet is empty.');
+    const headers=matrix[0].map((h,i)=>String(h||'').trim()||`Column ${i+1}`),preview=[],skipped=[];
+    for(let r=1;r<matrix.length;r++){
+      const raw=matrix[r]||[];if(!raw.some(v=>String(v??'').trim()!==''))continue;
+      const row={};headers.forEach((h,i)=>row[h]=raw[i]??'');const rowNo=r+1,task=getImportTaskCodeFromRawRow(row);
+      if(!task){skipped.push({row:rowNo,reason:'No Task Code / WP ID — skipped by default'});continue;}
+      const employeeRaw=prodImportRawEmployeeValue(row);
+      if(!employeeRaw){skipped.push({row:rowNo,reason:'No Employee ID found in Excel row — skipped by default'});continue;}
+      const built=buildEntriesFromRow(row,rowNo,raw)||[];
+      if(!built.length){preview.push({id:`excel-${rowNo}-unparsed`,row:rowNo,rawSourceRow:row,rawEmployeeIds:employeeRaw,rawPartNumber:cleanImportField(row['OEM P/N']||row['Part Number']||''),entry:{taskCode:task,rawEmployeeIds:employeeRaw,pname:cleanImportField(row['PART NAME']||row['Part Name']||''),pnum:cleanImportField(row['OEM P/N']||row['Part Number']||''),techId:'',techName:'',time:'',jobRole:'',jobType:''},status:'Needs review',reason:'Row could not be fully parsed',canImport:false,severity:'error'});continue;}
+      built.forEach((item,i)=>{item.id=item.id||`excel-${rowNo}-${i}`;item.rawSourceRow=row;item.rawEmployeeIds=item.rawEmployeeIds||employeeRaw;item.rawPartNumber=item.rawPartNumber||item.entry?.pnum||cleanImportField(row['OEM P/N']||row['Part Number']||'');applyProductionImportDefaultMappingsToItem(item);resolveProductionImportDepartment(item);if(typeof applyRememberedProdImportResolution==='function')applyRememberedProdImportResolution(item);preview.push(item);});
+    }
+    productionImportState={fileName:file.name,rows:[],preview,autoSkipEmpty:true,previewTab:'all',pendingRowIndex:null,lastAddedTechId:'',lastAddedPartNum:'',lastAddedPartName:'',ignoreAlways:[],ignoredMissingEmployeeIds:[],selectionModalOpened:false,hiddenSkipped:skipped};saveProductionImportState();
+    const stepper=document.getElementById('prod-stepper');if(stepper)stepper.style.display='';setProdImportStep('uploaded');validateProductionImportPreview();recordProductionImportHiddenRows(skipped);
+    const noEmp=skipped.filter(x=>x.reason.includes('No Employee ID')).length,noTask=skipped.filter(x=>x.reason.includes('No Task Code')).length;
+    toast(`Preview ready: ${preview.length} record${preview.length===1?'':'s'}. Skipped ${noEmp} row${noEmp===1?'':'s'} without Employee ID and ${noTask} without Task Code.`);
+  }catch(err){console.error(err);toast('Preview failed: '+(err?.message||err),'error');}finally{if(input)input.value='';}});
+}
+window.previewProductionImport=previewProductionImport;window.handleProdImportUpload=previewProductionImport;
+
+
+// BACKEND IMPORT PREVIEW + MULTI-DEPARTMENT MANAGER DASHBOARD v3.1.5
+function prodImportBackendKey(){
+  const uid=String(CU?.id||'anonymous').trim().toLowerCase().replace(/[^a-z0-9_-]+/g,'_');
+  return `production_import_preview_${uid}`;
+}
+let prodImportBackendSaveTimer=null;
+async function saveProductionImportStateToBackend(){
+  if(!sb||!CU)return;
+  const key=prodImportBackendKey();
+  const value={...productionImportState,importCallback:null,savedBy:CU.id,savedAt:new Date().toISOString()};
+  try{
+    if(!Array.isArray(value.preview)||!value.preview.length){
+      await sb.from('app_settings').delete().eq('key',key);
+      return;
+    }
+    const {error}=await sb.from('app_settings').upsert({key,value},{onConflict:'key'});
+    if(error)throw error;
+  }catch(e){console.warn('Backend preview save failed:',e);toast('Could not save Import Preview to backend','error');}
+}
+function saveProductionImportState(){
+  // Preview data is intentionally not stored in sessionStorage/localStorage.
+  clearTimeout(prodImportBackendSaveTimer);
+  prodImportBackendSaveTimer=setTimeout(saveProductionImportStateToBackend,250);
+}
+window.saveProductionImportState=saveProductionImportState;
+async function restoreProductionImportState(){
+  if(!sb||!CU)return false;
+  try{
+    const {data,error}=await sb.from('app_settings').select('value').eq('key',prodImportBackendKey()).maybeSingle();
+    if(error)throw error;
+    if(!data?.value||!Array.isArray(data.value.preview))return false;
+    productionImportState={...productionImportState,...data.value,preview:data.value.preview,hiddenSkipped:data.value.hiddenSkipped||[],selectionModalOpened:false,importCallback:null};
+    renderImportProduction();recordProductionImportHiddenRows(productionImportState.hiddenSkipped||[]);refreshProductionImportSummary(productionImportState.preview);return true;
+  }catch(e){console.warn('Backend preview restore failed:',e);return false;}
+}
+window.restoreProductionImportState=restoreProductionImportState;
+try{sessionStorage.removeItem(PROD_IMPORT_STATE_KEY);}catch(e){}
+const _doLogin_backendPreview=doLogin;
+doLogin=async function(){const result=await _doLogin_backendPreview.apply(this,arguments);if(CU)await restoreProductionImportState();return result;};window.doLogin=doLogin;
+
+// Ensure Clear Preview removes the backend preview only when no rows remain.
+const _clearProductionImportPreview_backend=clearProductionImportPreview;
+clearProductionImportPreview=function(){
+  const result=_clearProductionImportPreview_backend.apply(this,arguments);
+  setTimeout(()=>saveProductionImportStateToBackend(),0);
+  return result;
+};window.clearProductionImportPreview=clearProductionImportPreview;
+
+let managerDashboardSelectedDepartments=[];
+function getManagerDashboardDepartments(){
+  const assigned=CR==='mgr'?(Array.isArray(CU?.departments)?CU.departments:[]):currentUserDeptScope();
+  return [...new Set((assigned||[]).filter(Boolean))];
+}
+function ensureManagerDashboardDepartmentPanel(){
+  const page=document.getElementById('pg-dashboard');if(!page||CR!=='mgr')return null;
+  let panel=document.getElementById('mgr-dashboard-dept-panel');
+  if(!panel){
+    panel=document.createElement('div');panel.id='mgr-dashboard-dept-panel';panel.className='card';
+    panel.innerHTML=`<div class="ch"><span class="ct">🏢 Assigned Department Progress</span><div style="display:flex;gap:6px"><button class="btn bo bsm" onclick="selectAllManagerDashboardDepartments(true)">Select All</button><button class="btn bo bsm" onclick="selectAllManagerDashboardDepartments(false)">Clear</button></div></div><div class="cb"><div id="mgr-dashboard-dept-options" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div><div id="mgr-dashboard-dept-cards" class="kg k3" style="margin-bottom:0"></div></div>`;
+    const toolbar=page.querySelector('.tbr');if(toolbar)toolbar.insertAdjacentElement('afterend',panel);else page.prepend(panel);
+  }
+  return panel;
+}
+function selectAllManagerDashboardDepartments(all){managerDashboardSelectedDepartments=all?getManagerDashboardDepartments():[];renderManagerDepartmentProgress();}
+window.selectAllManagerDashboardDepartments=selectAllManagerDashboardDepartments;
+function toggleManagerDashboardDepartment(id,checked){
+  const set=new Set(managerDashboardSelectedDepartments);if(checked)set.add(id);else set.delete(id);managerDashboardSelectedDepartments=[...set];renderManagerDepartmentProgress();
+}
+window.toggleManagerDashboardDepartment=toggleManagerDashboardDepartment;
+function renderManagerDepartmentProgress(){
+  if(CR!=='mgr')return;ensureManagerDashboardDepartmentPanel();
+  const assigned=getManagerDashboardDepartments();
+  if(!managerDashboardSelectedDepartments.length)managerDashboardSelectedDepartments=[...assigned];
+  managerDashboardSelectedDepartments=managerDashboardSelectedDepartments.filter(id=>assigned.includes(id));
+  const options=document.getElementById('mgr-dashboard-dept-options'),cards=document.getElementById('mgr-dashboard-dept-cards');if(!options||!cards)return;
+  options.innerHTML=assigned.map(id=>`<label class="mgr-dept-chk"><input type="checkbox" ${managerDashboardSelectedDepartments.includes(id)?'checked':''} onchange="toggleManagerDashboardDepartment('${id}',this.checked)"><span>${escapeHtml(deptLabel(id))}</span></label>`).join('');
+  const range=getUIRange('dash');
+  cards.innerHTML=managerDashboardSelectedDepartments.map(id=>{
+    const deptTechs=techs.filter(t=>t.department===id&&t.status==='active');
+    const ids=new Set(deptTechs.map(t=>t.id));
+    const deptEntries=entries.filter(e=>ids.has(e.techId)&&dateInRange(e.time,range.start,range.end)&&isSDT(e)&&isApprovedEntry(e));
+    const actual=deptEntries.reduce((sum,e)=>sum+getDividedHours(e,entries),0);
+    const target=deptTechs.reduce((sum,t)=>sum+(t.monthlyTarget||160),0);
+    const pct=target?Math.round(actual/target*100):0;
+    const color=pct>=100?'var(--green)':pct>=70?'var(--amber)':'var(--rose)';
+    return `<div class="kc"><div class="kac" style="background:${color}"></div><div class="kl">${escapeHtml(deptLabel(id))}</div><div class="kv" style="color:${color}">${pct}%</div><div class="ks">${actual.toFixed(1)} / ${target.toFixed(1)} Hrs · ${deptTechs.length} active tech${deptTechs.length===1?'':'s'}</div><div class="kpb"><div class="kpb-bg"><div class="kpb-f" style="width:${Math.min(100,pct)}%;background:${color}"></div></div></div></div>`;
+  }).join('')||'<div class="empty" style="grid-column:1/-1">Select one or more assigned departments.</div>';
+}
+window.renderManagerDepartmentProgress=renderManagerDepartmentProgress;
+const _renderDashboard_multiDept=renderDashboard;
+renderDashboard=function(){const result=_renderDashboard_multiDept.apply(this,arguments);renderManagerDepartmentProgress();return result;};window.renderDashboard=renderDashboard;
+
+
+// CONFIGURABLE PRODUCTION IMPORT ROLE COLUMNS v3.1.6
+// Defaults: Inspector Q, Technician AE, Under Supervision AJ, Preliminary Inspector AM.
+const PROD_IMPORT_ROLE_COLUMN_DEFAULTS={
+  inspector:'Q',
+  technician:'AE',
+  underSupervision:'AJ',
+  preliminary:'AM'
+};
+function normalizeExcelColumnLetter(v){
+  const x=String(v||'').trim().toUpperCase().replace(/[^A-Z]/g,'');
+  return x||'';
+}
+function getProdImportRoleColumns(){
+  const configured=settings.productionImportRoleColumns||{};
+  return {
+    inspector:normalizeExcelColumnLetter(configured.inspector)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.inspector,
+    technician:normalizeExcelColumnLetter(configured.technician)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.technician,
+    underSupervision:normalizeExcelColumnLetter(configured.underSupervision)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.underSupervision,
+    preliminary:normalizeExcelColumnLetter(configured.preliminary)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.preliminary
+  };
+}
+function excelColumnToIndex(letter){
+  const s=normalizeExcelColumnLetter(letter);if(!s)return-1;
+  let n=0;for(const c of s)n=n*26+(c.charCodeAt(0)-64);return n-1;
+}
+function readRawExcelColumn(rawRow,letter){
+  const index=excelColumnToIndex(letter);return index>=0?cleanImportField((rawRow||[])[index]||''):'';
+}
+function ensureProdImportRoleColumnSettings(){
+  const system=document.getElementById('pg-system');if(!system||document.getElementById('prod-import-role-columns-card'))return;
+  const card=document.createElement('div');card.className='card';card.id='prod-import-role-columns-card';card.style.marginTop='14px';
+  card.innerHTML=`<div class="ch"><span class="ct">📥 Production Import Role Columns</span><button class="btn bp bsm" onclick="saveProdImportRoleColumns()">💾 Save Columns</button></div><div class="cb"><div class="al al-b"><span class="al-ico">ℹ️</span><div>Set the Excel column used to read Employee IDs for each production role. Enter Excel column letters such as Q, AE, AJ, or AM.</div></div><div class="fg f2"><div class="fgroup"><label class="flabel">Inspector Employee ID Column</label><input class="finput" id="sys-import-col-inspector" maxlength="3" placeholder="Q"></div><div class="fgroup"><label class="flabel">Technician Employee ID Column</label><input class="finput" id="sys-import-col-technician" maxlength="3" placeholder="AE"></div><div class="fgroup"><label class="flabel">Under Supervision Employee ID Column</label><input class="finput" id="sys-import-col-supervision" maxlength="3" placeholder="AJ"></div><div class="fgroup"><label class="flabel">Preliminary Inspector Employee ID Column</label><input class="finput" id="sys-import-col-preliminary" maxlength="3" placeholder="AM"></div></div><div style="display:flex;gap:8px;margin-top:12px"><button class="btn bo bsm" onclick="resetProdImportRoleColumns()">↺ Reset Defaults</button><span id="sys-import-col-summary" style="font-size:12px;color:var(--tx2);align-self:center"></span></div></div>`;
+  system.appendChild(card);loadProdImportRoleColumnInputs();
+}
+function loadProdImportRoleColumnInputs(){
+  const c=getProdImportRoleColumns();sv('sys-import-col-inspector',c.inspector);sv('sys-import-col-technician',c.technician);sv('sys-import-col-supervision',c.underSupervision);sv('sys-import-col-preliminary',c.preliminary);
+  stxt('sys-import-col-summary',`Inspector ${c.inspector} · Technician ${c.technician} · Under Supervision ${c.underSupervision} · Preliminary ${c.preliminary}`);
+}
+async function saveProdImportRoleColumns(){
+  const c={inspector:normalizeExcelColumnLetter(document.getElementById('sys-import-col-inspector')?.value),technician:normalizeExcelColumnLetter(document.getElementById('sys-import-col-technician')?.value),underSupervision:normalizeExcelColumnLetter(document.getElementById('sys-import-col-supervision')?.value),preliminary:normalizeExcelColumnLetter(document.getElementById('sys-import-col-preliminary')?.value)};
+  if(Object.values(c).some(v=>!v)){toast('Enter a valid Excel column letter for every role','error');return;}
+  if(new Set(Object.values(c)).size!==4){toast('Each role must use a different Excel column','error');return;}
+  settings.productionImportRoleColumns=c;await persistSettings();loadProdImportRoleColumnInputs();toast('Production import role columns saved');
+}
+window.saveProdImportRoleColumns=saveProdImportRoleColumns;
+async function resetProdImportRoleColumns(){settings.productionImportRoleColumns={...PROD_IMPORT_ROLE_COLUMN_DEFAULTS};await persistSettings();loadProdImportRoleColumnInputs();toast('Role columns reset to defaults');}
+window.resetProdImportRoleColumns=resetProdImportRoleColumns;
+
+function getConfiguredRoleEmployees(rawRow){
+  const c=getProdImportRoleColumns();
+  return [
+    {role:'Inspector',rawId:readRawExcelColumn(rawRow,c.inspector),column:c.inspector},
+    {role:'Technician',rawId:readRawExcelColumn(rawRow,c.technician),column:c.technician},
+    {role:'Under Supervision',rawId:readRawExcelColumn(rawRow,c.underSupervision),column:c.underSupervision},
+    {role:'Preliminary Inspector',rawId:readRawExcelColumn(rawRow,c.preliminary),column:c.preliminary}
+  ].filter(x=>x.rawId);
+}
+function roleIndexForImport(role){return ROLES.indexOf(role);}
+function buildConfiguredRoleImportItems(row,rowNo,rawRow){
+  const roleEmployees=getConfiguredRoleEmployees(rawRow);if(!roleEmployees.length)return[];
+  const baseBuilt=buildEntriesFromRow(row,rowNo,rawRow)||[];
+  const base=baseBuilt[0]||null;if(!base)return[];
+  return roleEmployees.map((roleEmployee,index)=>{
+    const item={...base,id:`excel-${rowNo}-${roleEmployee.role.replace(/\s+/g,'-').toLowerCase()}-${index}`,entry:{...(base.entry||{})}};
+    item.entry.jobRole=roleEmployee.role;item.rawEmployeeIds=roleEmployee.rawId;item.entry.rawEmployeeIds=roleEmployee.rawId;item.employeeSourceColumn=roleEmployee.column;
+    const tech=findTechByIdOrName(roleEmployee.rawId);
+    item.entry.techId=tech?.id||roleEmployee.rawId;item.entry.techName=tech?.name||'';
+    item.employeeItems=[{rawId:roleEmployee.rawId,techId:tech?.id||'',techName:tech?.name||'',valid:!!tech,isValid:!!tech,id:tech?.id||'',name:tech?.name||''}];
+    item.selectedEmployeeIds=tech?[{rawId:roleEmployee.rawId,techId:tech.id,techName:tech.name}]:[];
+    item.hasMultipleEmployees=false;
+    const part=findPartByNumber(item.entry.pnum);if(part)item.entry.hours=calcPoolHrs(part,roleEmployee.role,item.entry.taskCode);
+    return item;
+  });
+}
+
+async function previewProductionImport(input){
+  const file=input?.files?.[0];if(!file)return;if(!window.XLSX){toast('Import library not loaded','error');return;}
+  return runWithImportLoading('Preparing role-based production preview...',async()=>{try{
+    const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}),ws=wb.Sheets[wb.SheetNames[0]],matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
+    if(!matrix.length)throw new Error('The worksheet is empty.');
+    const headers=matrix[0].map((h,i)=>String(h||'').trim()||`Column ${i+1}`),preview=[],skipped=[],columns=getProdImportRoleColumns();
+    for(let r=1;r<matrix.length;r++){
+      const raw=matrix[r]||[];if(!raw.some(v=>String(v??'').trim()!==''))continue;
+      const row={};headers.forEach((h,i)=>row[h]=raw[i]??'');const rowNo=r+1,task=getImportTaskCodeFromRawRow(row);
+      if(!task){skipped.push({row:rowNo,reason:'No Task Code / WP ID — skipped by default'});continue;}
+      const roleEmployees=getConfiguredRoleEmployees(raw);
+      if(!roleEmployees.length){skipped.push({row:rowNo,reason:`No Employee ID found in configured role columns (${columns.inspector}, ${columns.technician}, ${columns.underSupervision}, ${columns.preliminary}) — skipped by default`});continue;}
+      const items=buildConfiguredRoleImportItems(row,rowNo,raw);
+      if(!items.length){skipped.push({row:rowNo,reason:'Required import data could not be parsed'});continue;}
+      items.forEach(item=>{item.rawSourceRow=row;item.rawPartNumber=item.rawPartNumber||item.entry?.pnum||cleanImportField(row['OEM P/N']||row['Part Number']||'');applyProductionImportDefaultMappingsToItem(item);resolveProductionImportDepartment(item);if(typeof applyRememberedProdImportResolution==='function')applyRememberedProdImportResolution(item);preview.push(item);});
+    }
+    productionImportState={fileName:file.name,rows:[],preview,autoSkipEmpty:true,previewTab:'all',pendingRowIndex:null,lastAddedTechId:'',lastAddedPartNum:'',lastAddedPartName:'',ignoreAlways:[],ignoredMissingEmployeeIds:[],selectionModalOpened:false,hiddenSkipped:skipped,roleColumns:columns};saveProductionImportState();
+    const stepper=document.getElementById('prod-stepper');if(stepper)stepper.style.display='';setProdImportStep('uploaded');validateProductionImportPreview();recordProductionImportHiddenRows(skipped);
+    toast(`Preview ready: ${preview.length} role entry${preview.length===1?'':'ies'} using Inspector ${columns.inspector}, Technician ${columns.technician}, Under Supervision ${columns.underSupervision}, Preliminary ${columns.preliminary}.`);
+  }catch(err){console.error(err);toast('Preview failed: '+(err?.message||err),'error');}finally{if(input)input.value='';}});
+}
+window.previewProductionImport=previewProductionImport;window.handleProdImportUpload=previewProductionImport;
+
+const _renderSystem_roleColumns=renderSystem;
+renderSystem=function(){const result=_renderSystem_roleColumns.apply(this,arguments);ensureProdImportRoleColumnSettings();loadProdImportRoleColumnInputs();return result;};window.renderSystem=renderSystem;
+document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>{ensureProdImportRoleColumnSettings();},700));
+
 </script>
 </body>
 </html>
