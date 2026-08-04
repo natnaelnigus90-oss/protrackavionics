@@ -10287,6 +10287,94 @@ validateProductionImportPreview=function(){
 };
 window.validateProductionImportPreview=validateProductionImportPreview;
 
+
+// EXTENDED QUICK DATE RANGES v3.1.9
+// Adds completed historical periods to every Quick Range selector.
+const EXTENDED_QUICK_RANGES=[
+  {value:'last-week',label:'Last Week'},
+  {value:'last-month',label:'Last Month'},
+  {value:'last-quarter',label:'Last Quarter'},
+  {value:'last-6-months',label:'Last 6 Months'},
+  {value:'last-year',label:'Last Year'}
+];
+function utcDateString(d){return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;}
+function completedQuickRange(value){
+  const today=todayEAT();
+  const [y,m,d]=today.split('-').map(Number);
+  const current=new Date(Date.UTC(y,m-1,d));
+  if(value==='last-week'){
+    const dow=current.getUTCDay();
+    const currentMonday=new Date(current);currentMonday.setUTCDate(current.getUTCDate()-(dow===0?6:dow-1));
+    const start=new Date(currentMonday);start.setUTCDate(start.getUTCDate()-7);
+    const end=new Date(start);end.setUTCDate(end.getUTCDate()+6);
+    return {start:utcDateString(start),end:utcDateString(end)};
+  }
+  if(value==='last-month'){
+    const start=new Date(Date.UTC(y,m-2,1));
+    const end=new Date(Date.UTC(y,m-1,0));
+    return {start:utcDateString(start),end:utcDateString(end)};
+  }
+  if(value==='last-quarter'){
+    const currentQuarter=Math.floor((m-1)/3);
+    const startMonth=currentQuarter*3-3;
+    const start=new Date(Date.UTC(y,startMonth,1));
+    const end=new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth()+3,0));
+    return {start:utcDateString(start),end:utcDateString(end)};
+  }
+  if(value==='last-6-months'){
+    // Previous six completed calendar months, excluding the current partial month.
+    const start=new Date(Date.UTC(y,m-7,1));
+    const end=new Date(Date.UTC(y,m-1,0));
+    return {start:utcDateString(start),end:utcDateString(end)};
+  }
+  if(value==='last-year'){
+    return {start:`${y-1}-01-01`,end:`${y-1}-12-31`};
+  }
+  return null;
+}
+function addExtendedQuickRangeOptions(){
+  document.querySelectorAll('select[id$="-dt-preset"]').forEach(select=>{
+    const allOption=select.querySelector('option[value="all"]');
+    EXTENDED_QUICK_RANGES.forEach(item=>{
+      if(select.querySelector(`option[value="${item.value}"]`))return;
+      const option=document.createElement('option');option.value=item.value;option.textContent=item.label;
+      if(allOption)select.insertBefore(option,allOption);else select.appendChild(option);
+    });
+  });
+}
+const _setUIRange_extended=setUIRange;
+setUIRange=function(prefix,value){
+  const range=completedQuickRange(value);
+  if(range){
+    const from=document.getElementById(`${prefix}-dt-from`),to=document.getElementById(`${prefix}-dt-to`);
+    if(from)from.value=range.start;if(to)to.value=range.end;return range;
+  }
+  return _setUIRange_extended.apply(this,arguments);
+};
+window.setUIRange=setUIRange;
+const _getUIRange_extended=getUIRange;
+getUIRange=function(prefix){
+  const preset=(document.getElementById(`${prefix}-dt-preset`)?.value||'').trim();
+  const range=completedQuickRange(preset);
+  if(range)return range;
+  return _getUIRange_extended.apply(this,arguments);
+};
+window.getUIRange=getUIRange;
+
+// Shop Report has its own preset handler; route the new options through its date inputs.
+const _applySRPreset_extended=typeof applySRPreset==='function'?applySRPreset:null;
+applySRPreset=function(value){
+  const range=completedQuickRange(value);
+  if(range){sv('sr-dt-from',range.start);sv('sr-dt-to',range.end);renderShopReport();return;}
+  if(_applySRPreset_extended)return _applySRPreset_extended.apply(this,arguments);
+};
+window.applySRPreset=applySRPreset;
+
+// Make the options available immediately and after login/page rendering.
+document.addEventListener('DOMContentLoaded',()=>setTimeout(addExtendedQuickRangeOptions,100));
+const _buildNav_extendedRanges=typeof buildNav==='function'?buildNav:null;
+if(_buildNav_extendedRanges){buildNav=function(){const result=_buildNav_extendedRanges.apply(this,arguments);setTimeout(addExtendedQuickRangeOptions,0);return result;};window.buildNav=buildNav;}
+
 </script>
 </body>
 </html>
