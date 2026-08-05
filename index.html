@@ -10707,6 +10707,158 @@ async function commitProductionImport(){
 }
 window.commitProductionImport=commitProductionImport;window.commitProdImportFromModal=commitProductionImport;window.commitProdImportResolved=commitProductionImport;
 
+
+// ═══════════════════════════════════════════════════════════════
+// IMPORT v2.2 — CONSTRAINT FIX, PERMANENT IGNORE, EXACT FILTERS
+// ═══════════════════════════════════════════════════════════════
+let importV22IgnoredEmployeeIds = new Set();
+function importV22NormEmployee(v){ return importV2Norm(v); }
+async function importV22LoadIgnoredEmployees(){
+  importV22IgnoredEmployeeIds=new Set();
+  if(!sb)return;
+  try{
+    const {data,error}=await sb.from('import_ignored_employees').select('normalized_employee_id');
+    if(error)throw error;
+    (data||[]).forEach(x=>importV22IgnoredEmployeeIds.add(importV22NormEmployee(x.normalized_employee_id)));
+  }catch(e){console.warn('Ignored employee list unavailable:',e);}
+}
+const _importV2LoadBackendKnowledge_v22=importV2LoadBackendKnowledge;
+importV2LoadBackendKnowledge=async function(){
+  const result=await _importV2LoadBackendKnowledge_v22.apply(this,arguments);
+  await importV22LoadIgnoredEmployees();
+  return result;
+};
+
+// Exclude permanently ignored employee IDs before a preview row is created.
+const _importV2RoleSources_v22=importV2RoleSources;
+importV2RoleSources=function(rawRow){
+  return _importV2RoleSources_v22(rawRow).map(source=>({
+    ...source,
+    ids:(source.ids||[]).filter(id=>!importV22IgnoredEmployeeIds.has(importV22NormEmployee(id)))
+  }));
+};
+
+function importV22RemoveEmployeeFromPreview(rawId){
+  const key=importV22NormEmployee(rawId);
+  const next=[];
+  (productionImportState.preview||[]).forEach(item=>{
+    const originalIds=importV2EmployeeIds(item.rawEmployeeIds);
+    if(!originalIds.some(id=>importV22NormEmployee(id)===key)){next.push(item);return;}
+    const remainingIds=originalIds.filter(id=>importV22NormEmployee(id)!==key);
+    item.rawEmployeeIds=remainingIds.join(',');
+    item.entry={...(item.entry||{}),rawEmployeeIds:item.rawEmployeeIds};
+    item.employeeItems=(item.employeeItems||[]).filter(e=>importV22NormEmployee(e.rawId)!==key&&importV22NormEmployee(e.techId)!==key);
+    item.selectedEmployeeIds=(item.selectedEmployeeIds||[]).filter(e=>importV22NormEmployee(e.rawId)!==key&&importV22NormEmployee(e.techId)!==key);
+    if(!remainingIds.length){
+      importV2Status(item,'SKIPPED',`Employee ID ${rawId} is permanently ignored`);
+      item.ignoredAlways=true;
+    }else{
+      item.entry.techId=item.selectedEmployeeIds[0]?.techId||'';
+      item.entry.techName=item.selectedEmployeeIds[0]?.techName||'';
+    }
+    next.push(item);
+  });
+  productionImportState.preview=next;
+}
+async function importV22IgnoreAlways(rawId){
+  const normalized=importV22NormEmployee(rawId);
+  if(!normalized)return;
+  const {error}=await sb.from('import_ignored_employees').upsert({
+    normalized_employee_id:normalized,
+    original_employee_id:String(rawId).trim(),
+    reason:'Ignored from Production Import by user',
+    ignored_by:CU?.id||'',
+    ignored_at:new Date().toISOString()
+  },{onConflict:'normalized_employee_id'});
+  if(error)throw error;
+  importV22IgnoredEmployeeIds.add(normalized);
+  importV22RemoveEmployeeFromPreview(rawId);
+  validateProductionImportPreview();
+  await importV2PersistPreview();
+}
+function importV22ChooseEmployeeId(target){
+  const ids=importV2EmployeeIds(target?.rawEmployeeIds);
+  if(ids.length<=1)return ids[0]||'';
+  const unresolved=(target.employeeItems||[]).filter(x=>!x.valid).map(x=>x.rawId).filter(Boolean);
+  if(unresolved.length===1)return unresolved[0];
+  const value=window.prompt(`Enter the Employee ID to ignore permanently. Available IDs: ${ids.join(', ')}`,unresolved[0]||ids[0]);
+  return ids.find(id=>importV22NormEmployee(id)===importV22NormEmployee(value))||'';
+}
+function ignoreProductionImportRow(rowIndex,mode='once'){
+  const target=getPreviewItemByRow(rowIndex);if(!target)return;
+  if(mode==='always'){
+    const rawId=importV22ChooseEmployeeId(target);
+    if(!rawId){toast('Select a valid Employee ID to ignore','error');return;}
+    if(!confirm(`Always ignore Employee ID ${rawId}? This ID will be removed from this preview, all matching rows, and future uploads.`))return;
+    importV22IgnoreAlways(rawId)
+      .then(()=>toast(`Employee ID ${rawId} is now ignored permanently. All matching preview requests were removed.`))
+      .catch(e=>toast('Ignore Always failed: '+(e?.message||e),'error'));
+    return;
+  }
+  target.ignoredOnce=true;
+  importV2Status(target,'SKIPPED','Ignored once for this preview');
+  saveProductionImportState();renderImportProduction();refreshProductionImportSummary(productionImportState.preview);
+}
+window.ignoreProductionImportRow=ignoreProductionImportRow;
+
+// Preserve explicit skip/ignore decisions during validation.
+const _importV2Classify_v22=importV2Classify;
+importV2Classify=function(items){
+  const protectedRows=new Map();
+  (items||[]).forEach(i=>{if(i.ignoredOnce||i.ignoredAlways||i.manualSkip)protectedRows.set(String(i.id),{status:'SKIPPED',reason:i.reason});});
+  const result=_importV2Classify_v22(items);
+  (result||[]).forEach(i=>{const p=protectedRows.get(String(i.id));if(p)importV2Status(i,p.status,p.reason);});
+  return result;
+};
+function skipProductionImportRow(rowIndex){
+  const target=getPreviewItemByRow(rowIndex);if(!target)return;
+  target.manualSkip=true;importV2Status(target,'SKIPPED','Row manually skipped');
+  saveProductionImportState();renderImportProduction();refreshProductionImportSummary(productionImportState.preview);
+}
+window.skipProductionImportRow=skipProductionImportRow;
+
+// Exact mutually-exclusive filter categories. Duplicates can no longer appear in Errors.
+function importV22CanonicalStatus(item){
+  const s=String(item?.importV2Status||item?.status||item?.validationStatus||'').trim().toUpperCase();
+  if(s==='DUPLICATE'||item?.isDuplicate===true)return 'DUPLICATE';
+  if(s==='SKIPPED'||item?.isSkipped===true||item?.ignoredOnce||item?.ignoredAlways||item?.manualSkip)return 'SKIPPED';
+  if(s==='READY')return 'READY';
+  if(s==='WARNING'||s==='WARN'||s==='PARTIAL MATCH')return 'WARNING';
+  return 'ERROR';
+}
+function getFilteredProductionImportPreviewRows(tab,rows){
+  const list=Array.isArray(rows)?rows:[];
+  const t=String(tab||'all').toLowerCase();
+  if(t==='all')return list;
+  const wanted=t==='ready'?'READY':t==='errors'?'ERROR':t==='warnings'?'WARNING':t==='duplicates'?'DUPLICATE':t==='skipped'?'SKIPPED':'';
+  return wanted?list.filter(item=>importV22CanonicalStatus(item)===wanted):list;
+}
+window.getFilteredProductionImportPreviewRows=getFilteredProductionImportPreviewRows;
+function setProdImportTab(tab){
+  productionImportState.previewTab=tab;
+  document.querySelectorAll('#prod-import-tabs .prod-import-tab').forEach(el=>el.classList.toggle('on',el.dataset.tab===tab));
+  renderImportProduction();
+}
+window.setProdImportTab=setProdImportTab;
+
+// Ensure an optional Skipped filter exists and show exact category counts on every filter.
+function importV22RefreshFilterLabels(){
+  const tabs=document.getElementById('prod-import-tabs');if(!tabs)return;
+  if(!tabs.querySelector('[data-tab="skipped"]')){
+    const b=document.createElement('button');b.className='prod-import-tab';b.dataset.tab='skipped';b.textContent='Skipped';b.onclick=()=>setProdImportTab('skipped');tabs.appendChild(b);
+  }
+  const rows=productionImportState.preview||[];
+  const labels={all:'All Rows',ready:'Ready',errors:'Errors',warnings:'Warnings',duplicates:'Duplicates',skipped:'Skipped'};
+  tabs.querySelectorAll('.prod-import-tab').forEach(b=>{
+    const tab=b.dataset.tab,count=tab==='all'?rows.length:getFilteredProductionImportPreviewRows(tab,rows).length;
+    b.textContent=`${labels[tab]||tab} (${count})`;
+    b.classList.toggle('on',tab===(productionImportState.previewTab||'all'));
+  });
+}
+const _renderImportProduction_v22=renderImportProduction;
+renderImportProduction=function(){const result=_renderImportProduction_v22.apply(this,arguments);importV22RefreshFilterLabels();return result;};
+window.renderImportProduction=renderImportProduction;
+
 </script>
 </body>
 </html>
