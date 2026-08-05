@@ -10375,6 +10375,233 @@ document.addEventListener('DOMContentLoaded',()=>setTimeout(addExtendedQuickRang
 const _buildNav_extendedRanges=typeof buildNav==='function'?buildNav:null;
 if(_buildNav_extendedRanges){buildNav=function(){const result=_buildNav_extendedRanges.apply(this,arguments);setTimeout(addExtendedQuickRangeOptions,0);return result;};window.buildNav=buildNav;}
 
+
+// ═══════════════════════════════════════════════════════════════
+// PROTRACK PRODUCTION IMPORT v2.0 — RELIABLE / IDEMPOTENT ENGINE
+// ═══════════════════════════════════════════════════════════════
+const IMPORT_V2_STATUSES = ['READY','WARNING','ERROR','SKIPPED','DUPLICATE'];
+let importV2HistoryKeys = new Set();
+let importV2Resolutions = { employee:{}, part:{}, task:{} };
+let importV2BatchId = '';
+let importV2BackendAvailable = true;
+
+function importV2Norm(v){ return String(v ?? '').trim().toUpperCase().replace(/\s+/g,' '); }
+function importV2EmployeeIds(v){ return [...new Set(String(v ?? '').split(/[,;\n\r\/|]+/).map(x=>x.trim()).filter(Boolean))]; }
+function importV2BusinessKey(taskCode, role, employeeId){ return `${importV2Norm(taskCode)}|${importV2Norm(role)}|${importV2Norm(employeeId)}`; }
+function importV2ResolutionKey(type, source, role='', dept=''){ return `${type}|${importV2Norm(source)}|${importV2Norm(role)}|${importV2Norm(dept)}`; }
+function importV2NewBatchId(){ return `IMP-${todayEAT().replace(/-/g,'')}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,7).toUpperCase()}`; }
+async function importV2Hash(buffer){ const d=await crypto.subtle.digest('SHA-256',buffer); return [...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+function importV2RoleSources(rawRow){
+  const c=getProdImportRoleColumns();
+  return [
+    ['Inspector',c.inspector],['Technician',c.technician],['Under Supervision',c.underSupervision],['Preliminary Inspector',c.preliminary]
+  ].map(([role,column])=>({role,column,ids:importV2EmployeeIds(readRawExcelColumn(rawRow,column))}));
+}
+function importV2Status(item,status,reason=''){
+  item.importV2Status=status; item.status=status; item.validationStatus=status; item.reason=reason;
+  item.canImport=status==='READY'||status==='WARNING'; item.isSkipped=status==='SKIPPED'; item.isDuplicate=status==='DUPLICATE';
+  item.severity=status==='READY'?'ok':status==='WARNING'?'warning':'error'; return item;
+}
+async function importV2LoadBackendKnowledge(){
+  importV2HistoryKeys=new Set(); importV2Resolutions={employee:{},part:{},task:{}};
+  if(!sb)return;
+  try{
+    const [{data:h,error:he},{data:r,error:re}]=await Promise.all([
+      sb.from('import_history').select('business_key'),
+      sb.from('import_resolutions').select('*')
+    ]);
+    if(he)throw he; if(re)throw re;
+    (h||[]).forEach(x=>importV2HistoryKeys.add(x.business_key));
+    (r||[]).forEach(x=>{ importV2Resolutions[x.resolution_type][importV2ResolutionKey(x.resolution_type,x.source_key,x.role,x.department)]=x.target_value; });
+    importV2BackendAvailable=true;
+  }catch(e){ importV2BackendAvailable=false; console.warn('Import v2 migration not available:',e); }
+}
+function importV2ResolveEmployee(rawId,role,dept){
+  const exact=findTechByIdOrName(rawId); if(exact)return exact;
+  const keys=[importV2ResolutionKey('employee',rawId,role,dept),importV2ResolutionKey('employee',rawId,role,''),importV2ResolutionKey('employee',rawId,'',dept),importV2ResolutionKey('employee',rawId,'','')];
+  const target=keys.map(k=>importV2Resolutions.employee[k]).find(Boolean);
+  return target?findTechByIdOrName(target):null;
+}
+function importV2ResolvePart(raw,role,dept){
+  const exact=findPartByNumber(raw); if(exact)return exact;
+  const keys=[importV2ResolutionKey('part',raw,role,dept),importV2ResolutionKey('part',raw,'',dept),importV2ResolutionKey('part',raw,'','')];
+  const target=keys.map(k=>importV2Resolutions.part[k]).find(Boolean);
+  return target?findPartByNumber(target):null;
+}
+async function importV2PersistPreview(){
+  if(!sb||!CU||!importV2BackendAvailable||!importV2BatchId)return;
+  try{
+    await sb.from('import_preview_rows').delete().eq('owner_id',CU.id).eq('batch_id',importV2BatchId);
+    const rows=(productionImportState.preview||[]).map(item=>({
+      id:String(item.id||newId('ipr_')),batch_id:importV2BatchId,owner_id:CU.id,excel_row:Number(item.row)||null,
+      status:item.importV2Status||item.status||'ERROR',reason:item.reason||'',business_keys:item.businessKeys||[],payload:item,updated_at:new Date().toISOString()
+    }));
+    for(let i=0;i<rows.length;i+=250){ const {error}=await sb.from('import_preview_rows').upsert(rows.slice(i,i+250)); if(error)throw error; }
+  }catch(e){ console.warn('Preview backend save failed:',e); }
+}
+function saveProductionImportState(){ clearTimeout(saveProductionImportState._t); saveProductionImportState._t=setTimeout(importV2PersistPreview,200); }
+window.saveProductionImportState=saveProductionImportState;
+
+async function restoreProductionImportState(){
+  if(!sb||!CU)return false;
+  try{
+    const {data:b,error:be}=await sb.from('import_batches').select('*').eq('uploaded_by',CU.id).eq('status','preview').order('uploaded_at',{ascending:false}).limit(1).maybeSingle();
+    if(be)throw be; if(!b)return false;
+    const {data:r,error:re}=await sb.from('import_preview_rows').select('payload').eq('owner_id',CU.id).eq('batch_id',b.id).order('excel_row');
+    if(re)throw re; importV2BatchId=b.id;
+    productionImportState={...productionImportState,fileName:b.file_name,preview:(r||[]).map(x=>x.payload),hiddenSkipped:[],selectionModalOpened:false};
+    renderImportProduction(); refreshProductionImportSummary(productionImportState.preview); return true;
+  }catch(e){ console.warn('Preview restore failed:',e); return false; }
+}
+window.restoreProductionImportState=restoreProductionImportState;
+try{sessionStorage.removeItem(PROD_IMPORT_STATE_KEY);}catch(e){}
+
+function importV2BuildRoleItem(base,row,rowNo,rawRow,source,index){
+  const item={...base,id:`${importV2BatchId}-${rowNo}-${source.role.replace(/\s/g,'_')}-${index}`,row:rowNo,rawSourceRow:row,entry:{...(base.entry||{})},employeeSourceColumn:source.column,rawEmployeeIds:source.ids.join(','),employeeItems:[],selectedEmployeeIds:[],businessKeys:[],duplicateEmployeeIds:[],newEmployeeIds:[]};
+  item.entry.jobRole=source.role; item.entry.rawEmployeeIds=item.rawEmployeeIds; item.entry.techId=''; item.entry.techName='';
+  const dept=resolveProductionImportDepartment(item)||item.entry.department||'';
+  source.ids.forEach(rawId=>{
+    const tech=importV2ResolveEmployee(rawId,source.role,dept);
+    const emp={rawId,techId:tech?.id||'',techName:tech?.name||'',valid:!!tech,isValid:!!tech,id:tech?.id||'',name:tech?.name||''};
+    item.employeeItems.push(emp); if(tech)item.selectedEmployeeIds.push({rawId,techId:tech.id,techName:tech.name});
+  });
+  if(item.selectedEmployeeIds.length){ item.entry.techId=item.selectedEmployeeIds[0].techId; item.entry.techName=item.selectedEmployeeIds[0].techName; }
+  item.hasMultipleEmployees=source.ids.length>1;
+  const rawPart=getImportPartKeyFromItem(item)||item.entry.pnum;
+  const part=importV2ResolvePart(rawPart,source.role,dept);
+  if(part){ item.entry.pnum=part.num; item.entry.pname=part.name; item.entry.stdHours=part.hours; item.entry.hours=calcPoolHrs(part,source.role,item.entry.taskCode); }
+  return item;
+}
+function importV2Classify(items){
+  const current=new Set();
+  items.forEach(item=>{
+    const e=item.entry||{};
+    if(item.importV2Status==='SKIPPED')return;
+    if(!e.taskCode)return importV2Status(item,'SKIPPED','No Task Code / WP ID');
+    const rawIds=importV2EmployeeIds(item.rawEmployeeIds);
+    if(!rawIds.length)return importV2Status(item,'SKIPPED','No Employee ID in the configured role column');
+    if(!e.time)return importV2Status(item,'ERROR',item.dateValidation||'Missing or invalid completion date');
+    if(!e.pnum||!findPartByNumber(e.pnum))return importV2Status(item,'ERROR','Part not found');
+    const valid=item.selectedEmployeeIds||[];
+    const missing=(item.employeeItems||[]).filter(x=>!x.valid);
+    if(!valid.length)return importV2Status(item,'ERROR','No valid employee found');
+    item.businessKeys=[]; item.duplicateEmployeeIds=[]; item.newEmployeeIds=[];
+    valid.forEach(emp=>{
+      const key=importV2BusinessKey(e.taskCode,e.jobRole,emp.techId); item.businessKeys.push(key);
+      if(current.has(key)||importV2HistoryKeys.has(key))item.duplicateEmployeeIds.push(emp.techId); else{current.add(key);item.newEmployeeIds.push(emp.techId);}
+    });
+    if(!item.newEmployeeIds.length)return importV2Status(item,'DUPLICATE','All employee/task/role combinations were imported previously or repeat in this upload');
+    if(item.duplicateEmployeeIds.length)return importV2Status(item,'WARNING',`${item.newEmployeeIds.length} new employee entry/entries; ${item.duplicateEmployeeIds.length} duplicate(s) will be skipped`);
+    if(missing.length)return importV2Status(item,'WARNING',`${valid.length} valid employee(s); ${missing.length} unresolved ID(s) require mapping`);
+    return importV2Status(item,'READY','');
+  });
+  return items;
+}
+function validateProductionImportPreview(){
+  const items=Array.isArray(productionImportState.preview)?productionImportState.preview:[];
+  importV2Classify(items); productionImportState.preview=items; saveProductionImportState(); renderImportProduction(); refreshProductionImportSummary(items); return items;
+}
+window.validateProductionImportPreview=validateProductionImportPreview;
+
+async function previewProductionImport(input){
+  const file=input?.files?.[0]; if(!file)return; if(!window.XLSX){toast('Import library not loaded','error');return;}
+  return runWithImportLoading('Reading every Excel row...',async()=>{
+    try{
+      await importV2LoadBackendKnowledge();
+      if(!importV2BackendAvailable)throw new Error('Import v2 backend tables are missing. Run protrack_import_v2_migration.sql in Supabase first.');
+      const buffer=await file.arrayBuffer(), hash=await importV2Hash(buffer), wb=XLSX.read(buffer,{type:'array',cellDates:true}), ws=wb.Sheets[wb.SheetNames[0]];
+      const matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
+      if(!matrix.length)throw new Error('The worksheet is empty');
+      importV2BatchId=importV2NewBatchId();
+      const {error:be}=await sb.from('import_batches').insert({id:importV2BatchId,file_name:file.name,file_hash:hash,uploaded_by:CU.id,status:'preview'}); if(be)throw be;
+      const headers=matrix[0].map((h,i)=>String(h||'').trim()||`Column ${i+1}`), preview=[];
+      for(let r=1;r<matrix.length;r++){
+        const raw=matrix[r]||[], rowNo=r+1; if(!raw.some(v=>String(v??'').trim()!==''))continue;
+        const row={}; headers.forEach((h,i)=>row[h]=raw[i]??'');
+        const task=getImportTaskCodeFromRawRow(row), sources=importV2RoleSources(raw), roleSources=sources.filter(x=>x.ids.length);
+        if(!task||!roleSources.length){
+          preview.push(importV2Status({id:`${importV2BatchId}-${rowNo}-skip`,row:rowNo,rawSourceRow:row,entry:{taskCode:task||'',jobRole:'',techId:'',pnum:cleanImportField(row['OEM P/N']||row['Part Number']||''),time:''},businessKeys:[]},'SKIPPED',!task&&!roleSources.length?'No Task Code and no Employee ID':!task?'No Task Code / WP ID':'No Employee ID in configured role columns'));
+          continue;
+        }
+        const built=buildEntriesFromRow(row,rowNo,raw)||[];
+        if(!built.length){ preview.push(importV2Status({id:`${importV2BatchId}-${rowNo}-error`,row:rowNo,rawSourceRow:row,entry:{taskCode:task},businessKeys:[]},'ERROR','Row could not be parsed')); continue; }
+        roleSources.forEach((source,i)=>preview.push(importV2BuildRoleItem(built[0],row,rowNo,raw,source,i)));
+      }
+      productionImportState={fileName:file.name,rows:[],preview,previewTab:'all',pendingRowIndex:null,ignoreAlways:[],ignoredMissingEmployeeIds:[],selectionModalOpened:false,hiddenSkipped:[],batchId:importV2BatchId};
+      validateProductionImportPreview(); await importV2PersistPreview();
+      const counts=Object.fromEntries(IMPORT_V2_STATUSES.map(s=>[s,preview.filter(x=>x.importV2Status===s).length]));
+      toast(`Preview complete: ${preview.length} records — ${counts.READY} Ready, ${counts.WARNING} Warning, ${counts.ERROR} Error, ${counts.SKIPPED} Skipped, ${counts.DUPLICATE} Duplicate.`);
+    }catch(err){console.error(err);toast('Preview failed: '+(err?.message||err),'error');}
+    finally{if(input)input.value='';}
+  });
+}
+window.previewProductionImport=previewProductionImport; window.handleProdImportUpload=previewProductionImport;
+
+async function importV2ReserveHistory(entry,batchId,rowNo){
+  const key=importV2BusinessKey(entry.taskCode,entry.jobRole,entry.techId);
+  const payload={business_key:key,task_code:importV2Norm(entry.taskCode),job_role:entry.jobRole,employee_id:entry.techId,batch_id:batchId,excel_row:Number(rowNo)||null,part_number:entry.pnum||'',work_date:String(entry.time||'').slice(0,10)||null,department:entry.department||entry.dept||'',hours:Number(entry.hours)||0,imported_by:CU.id};
+  const {data,error}=await sb.from('import_history').insert(payload).select('id').single();
+  if(error){ if(error.code==='23505')return {duplicate:true,key}; throw error; }
+  return {duplicate:false,key,historyId:data.id};
+}
+async function commitProductionImport(){
+  if(!canI('importproduction','import')){toast('Not allowed','error');return;}
+  validateProductionImportPreview(); const preview=productionImportState.preview||[];
+  const candidates=preview.filter(x=>x.importV2Status==='READY'||x.importV2Status==='WARNING');
+  if(!candidates.length){toast('No new Ready or Warning entries are available','error');return;}
+  return runWithImportLoading('Importing only new employee/task/role combinations...',async()=>{
+    let created=0,duplicates=0,failed=0; const successful=new Set();
+    for(const item of candidates){
+      const e=item.entry||{}, valid=item.selectedEmployeeIds||[]; let itemCreated=0,itemFailed=false;
+      for(const emp of valid){
+        const entry={...e,techId:emp.techId,techName:emp.techName,taskCode:importV2Norm(e.taskCode),time:String(e.time||'').slice(0,10),importedSource:'ComponentTATStatus',importBatchId:importV2BatchId,importExcelRow:item.row,approvalStatus:'pending'};
+        let reservation;
+        try{
+          reservation=await importV2ReserveHistory(entry,importV2BatchId,item.row);
+          if(reservation.duplicate){duplicates++;continue;}
+          const saved=await DB.upsert('entries',entry);
+          await sb.from('import_history').update({entry_id:saved.id}).eq('id',reservation.historyId);
+          entries.unshift(saved); importV2HistoryKeys.add(reservation.key); created++;itemCreated++;
+        }catch(err){failed++;itemFailed=true;console.error(err);if(reservation?.historyId)await sb.from('import_history').delete().eq('id',reservation.historyId);}
+      }
+      if(itemCreated>0&&!itemFailed)successful.add(String(item.id));
+    }
+    productionImportState.preview=preview.filter(x=>!successful.has(String(x.id)));
+    await importV2PersistPreview(); renderImportProduction();refreshProductionImportSummary(productionImportState.preview);
+    if(canManageEntriesUI())renderAllEntries();
+    toast(`Import finished: ${created} new entries imported, ${duplicates} duplicates blocked, ${failed} failed.` ,failed?'warn':'success');
+  });
+}
+window.commitProductionImport=commitProductionImport; window.commitProdImportFromModal=commitProductionImport; window.commitProdImportResolved=commitProductionImport;
+
+async function clearProductionImportPreview(){
+  const count=(productionImportState.preview||[]).length; if(!count){toast('No preview to clear','info');return;}
+  if(!confirm(`Clear all ${count} preview records? Import history and saved mappings will remain.`))return;
+  try{
+    if(importV2BackendAvailable&&importV2BatchId){ await sb.from('import_batches').delete().eq('id',importV2BatchId); }
+    productionImportState={fileName:'',rows:[],preview:[],autoSkipEmpty:true,previewTab:'all',pendingRowIndex:null,lastAddedTechId:'',lastAddedPartNum:'',lastAddedPartName:'',ignoreAlways:[],ignoredMissingEmployeeIds:[],selectionModalOpened:false,hiddenSkipped:[]};
+    importV2BatchId=''; renderImportProduction();refreshProductionImportSummary([]);toast('Preview cleared. Duplicate history and resolutions were retained.');
+  }catch(e){toast('Clear Preview failed: '+e.message,'error');}
+}
+window.clearProductionImportPreview=clearProductionImportPreview;
+
+async function importV2SaveResolution(type,source,target,role='',dept=''){
+  if(!source||!target||!sb)return;
+  const row={resolution_type:type,source_key:importV2Norm(source),role:role||'',target_value:target,department:dept||'',created_by:CU?.id||'',updated_at:new Date().toISOString()};
+  const {error}=await sb.from('import_resolutions').upsert(row,{onConflict:'resolution_type,source_key,role,department'}); if(error)throw error;
+  importV2Resolutions[type][importV2ResolutionKey(type,source,role,dept)]=target;
+}
+const _saveProductionImportDefaultMap_v2=saveProductionImportDefaultMap;
+saveProductionImportDefaultMap=function(type,source,target){
+  const changed=_saveProductionImportDefaultMap_v2.apply(this,arguments);
+  const item=getPreviewItemByRow(productionImportState.pendingRowIndex); const role=item?.entry?.jobRole||'',dept=item?.entry?.department||item?.department||'';
+  importV2SaveResolution(type==='employee'?'employee':'part',source,target,role,dept).catch(e=>toast('Backend mapping save failed: '+e.message,'error'));
+  return changed;
+}; window.saveProductionImportDefaultMap=saveProductionImportDefaultMap;
+
+const _doLogin_importV2=doLogin;
+doLogin=async function(){ const result=await _doLogin_importV2.apply(this,arguments); if(CU){await importV2LoadBackendKnowledge();await restoreProductionImportState();} return result; }; window.doLogin=doLogin;
+
 </script>
 </body>
 </html>
