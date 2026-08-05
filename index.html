@@ -10859,6 +10859,80 @@ const _renderImportProduction_v22=renderImportProduction;
 renderImportProduction=function(){const result=_renderImportProduction_v22.apply(this,arguments);importV22RefreshFilterLabels();return result;};
 window.renderImportProduction=renderImportProduction;
 
+
+// ═══════════════════════════════════════════════════════════════
+// IMPORT v2.3 — WARNING EXPLANATION + STATUS/UI CONSISTENCY
+// ═══════════════════════════════════════════════════════════════
+function importV23WarningExplanation(item){
+  const duplicateCount=(item?.duplicateEmployeeIds||[]).length;
+  const newCount=(item?.newEmployeeIds||[]).length;
+  const missing=(item?.employeeItems||[]).filter(e=>!(e.valid||e.isValid));
+  const valid=(item?.employeeItems||[]).filter(e=>e.valid||e.isValid);
+  if(duplicateCount&&newCount){
+    return `${newCount} employee entr${newCount===1?'y is':'ies are'} new and will be imported; ${duplicateCount} employee entr${duplicateCount===1?'y already exists':'ies already exist'} for the same Task Code and role and will be skipped.`;
+  }
+  if(missing.length&&valid.length){
+    return `${valid.length} valid employee ID${valid.length===1?'':'s'} found; ${missing.length} unresolved employee ID${missing.length===1?'':'s'} require mapping or ignoring.`;
+  }
+  if(item?.reason&&String(item.reason).trim())return String(item.reason).trim();
+  return 'This row requires review before import. Revalidate the row to refresh its detailed warning.';
+}
+function importV23SynchronizeStatus(item){
+  const canonical=importV22CanonicalStatus(item);
+  item.importV2Status=canonical;
+  item.status=canonical;
+  item.validationStatus=canonical;
+  item.severity=canonical==='READY'?'ok':canonical==='WARNING'?'warning':'error';
+  item.canImport=canonical==='READY'||canonical==='WARNING';
+  item.isDuplicate=canonical==='DUPLICATE';
+  item.isSkipped=canonical==='SKIPPED';
+  if(canonical==='WARNING')item.reason=importV23WarningExplanation(item);
+  if(canonical==='DUPLICATE'&&!String(item.reason||'').trim())item.reason='This employee, Task Code, and role combination already exists in Production Entries or repeats in this upload.';
+  if(canonical==='SKIPPED'&&!String(item.reason||'').trim())item.reason='This row was skipped and will not be imported.';
+  if(canonical==='ERROR'&&!String(item.reason||'').trim())item.reason='This row contains a blocking validation error.';
+  return item;
+}
+const _validateProductionImportPreview_v23=validateProductionImportPreview;
+validateProductionImportPreview=function(){
+  const result=_validateProductionImportPreview_v23.apply(this,arguments);
+  (productionImportState.preview||[]).forEach(importV23SynchronizeStatus);
+  saveProductionImportState();
+  renderImportProduction();
+  refreshProductionImportSummary(productionImportState.preview);
+  return result;
+};
+window.validateProductionImportPreview=validateProductionImportPreview;
+
+// The legacy row renderer can label importable WARNINGS as Ready. Correct the rendered
+// validation cell from the same canonical status used by the filter buttons.
+const _renderImportProduction_v23=renderImportProduction;
+renderImportProduction=function(){
+  (productionImportState.preview||[]).forEach(importV23SynchronizeStatus);
+  const result=_renderImportProduction_v23.apply(this,arguments);
+  const active=productionImportState.previewTab||'all';
+  const visible=getFilteredProductionImportPreviewRows(active,productionImportState.preview||[]);
+  const body=document.getElementById('prod-import-body');
+  if(body){
+    [...body.querySelectorAll('tr')].forEach((tr,index)=>{
+      const item=visible[index];if(!item)return;
+      const cell=tr.lastElementChild;if(!cell)return;
+      const canonical=importV22CanonicalStatus(item);
+      const colors={READY:'var(--green)',WARNING:'var(--amber)',ERROR:'var(--rose)',DUPLICATE:'var(--violet)',SKIPPED:'var(--tx3)'};
+      const oldBadges=[...cell.querySelectorAll('.badge,.pill,.status-badge')];
+      const statusBadge=oldBadges[0];
+      if(statusBadge){statusBadge.textContent=canonical;statusBadge.style.color=colors[canonical];}
+      else cell.insertAdjacentHTML('afterbegin',`<span class="badge" style="color:${colors[canonical]};margin-right:6px">${canonical}</span>`);
+      let detail=cell.querySelector('.prod-import-detail');
+      if(!detail){detail=document.createElement('div');detail.className='prod-import-detail';cell.appendChild(detail);}
+      detail.textContent=item.reason||'';
+      detail.style.color=canonical==='WARNING'?'var(--amber)':canonical==='ERROR'?'var(--rose)':canonical==='DUPLICATE'?'var(--violet)':'var(--tx3)';
+    });
+  }
+  importV22RefreshFilterLabels();
+  return result;
+};
+window.renderImportProduction=renderImportProduction;
+
 </script>
 </body>
 </html>
