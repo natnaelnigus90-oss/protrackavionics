@@ -10602,6 +10602,411 @@ saveProductionImportDefaultMap=function(type,source,target){
 const _doLogin_importV2=doLogin;
 doLogin=async function(){ const result=await _doLogin_importV2.apply(this,arguments); if(CU){await importV2LoadBackendKnowledge();await restoreProductionImportState();} return result; }; window.doLogin=doLogin;
 
+
+// ═══════════════════════════════════════════════════════════════
+// IMPORT v2.1 — BULK COMMIT + AUTHORITATIVE ENTRY DUPLICATES
+// ═══════════════════════════════════════════════════════════════
+let importV21EntryByKey = new Map();
+function importV21EntryKey(e){ return importV2BusinessKey(e?.taskCode,e?.jobRole,e?.techId); }
+async function importV2LoadBackendKnowledge(){
+  importV2HistoryKeys=new Set(); importV21EntryByKey=new Map(); importV2Resolutions={employee:{},part:{},task:{}};
+  if(!sb)return;
+  try{
+    const [{data:existing,error:ee},{data:r,error:re}]=await Promise.all([
+      sb.from('entries').select('id,businessKey,taskCode,jobRole,techId,techName,time,pnum,approvalStatus'),
+      sb.from('import_resolutions').select('*')
+    ]);
+    if(ee)throw ee;if(re)throw re;
+    (existing||[]).forEach(e=>{
+      const key=e.businessKey||importV21EntryKey(e);
+      if(key){ importV2HistoryKeys.add(key); importV21EntryByKey.set(key,e); }
+    });
+    (r||[]).forEach(x=>{importV2Resolutions[x.resolution_type][importV2ResolutionKey(x.resolution_type,x.source_key,x.role,x.department)]=x.target_value;});
+    importV2BackendAvailable=true;
+  }catch(e){importV2BackendAvailable=false;console.warn('Import v2.1 backend unavailable:',e);}
+}
+function importV2Classify(items){
+  const current=new Set();
+  items.forEach(item=>{
+    const e=item.entry||{};
+    if(item.importV2Status==='SKIPPED')return;
+    if(!e.taskCode)return importV2Status(item,'SKIPPED','No Task Code / WP ID');
+    const rawIds=importV2EmployeeIds(item.rawEmployeeIds);
+    if(!rawIds.length)return importV2Status(item,'SKIPPED','No Employee ID in the configured role column');
+    if(!e.time)return importV2Status(item,'ERROR',item.dateValidation||'Missing or invalid completion date');
+    if(!e.pnum||!findPartByNumber(e.pnum))return importV2Status(item,'ERROR','Part not found');
+    const valid=item.selectedEmployeeIds||[],missing=(item.employeeItems||[]).filter(x=>!x.valid);
+    if(!valid.length)return importV2Status(item,'ERROR','No valid employee found');
+    item.businessKeys=[];item.duplicateEmployeeIds=[];item.newEmployeeIds=[];item.duplicateMatches=[];
+    valid.forEach(emp=>{
+      const key=importV2BusinessKey(e.taskCode,e.jobRole,emp.techId);item.businessKeys.push(key);
+      const match=importV21EntryByKey.get(key);
+      if(current.has(key)||match){item.duplicateEmployeeIds.push(emp.techId);if(match)item.duplicateMatches.push(match);}
+      else{current.add(key);item.newEmployeeIds.push(emp.techId);}
+    });
+    if(!item.newEmployeeIds.length){
+      const m=item.duplicateMatches[0];
+      const detail=m?` Existing entry: ${m.techName||m.techId}, ${m.jobRole}, ${m.taskCode}, ${String(m.time||'').slice(0,10)}, ID ${m.id}.`:'';
+      return importV2Status(item,'DUPLICATE','All employee/task/role combinations already exist in Production Entries.'+detail);
+    }
+    if(item.duplicateEmployeeIds.length)return importV2Status(item,'WARNING',`${item.newEmployeeIds.length} new employee entry/entries; ${item.duplicateEmployeeIds.length} existing Production Entry duplicate(s) will be skipped`);
+    if(missing.length)return importV2Status(item,'WARNING',`${valid.length} valid employee(s); ${missing.length} unresolved ID(s) require mapping`);
+    return importV2Status(item,'READY','');
+  });
+  return items;
+}
+async function importV21BulkUpsert(table,rows,options={},chunkSize=400){
+  const saved=[];
+  for(let i=0;i<rows.length;i+=chunkSize){
+    const {data,error}=await sb.from(table).upsert(rows.slice(i,i+chunkSize),options).select('*');
+    if(error)throw error;if(data)saved.push(...data);
+  }
+  return saved;
+}
+async function importV21BulkHistory(rows,chunkSize=500){
+  for(let i=0;i<rows.length;i+=chunkSize){
+    const {error}=await sb.from('import_history').upsert(rows.slice(i,i+chunkSize),{onConflict:'business_key'});
+    if(error)throw error;
+  }
+}
+async function commitProductionImport(){
+  if(!canI('importproduction','import')){toast('Not allowed','error');return;}
+  await importV2LoadBackendKnowledge();
+  if(!importV2BackendAvailable){toast('Run protrack_import_v2_1_performance_migration.sql in Supabase first.','error');return;}
+  validateProductionImportPreview();
+  const preview=productionImportState.preview||[],candidates=preview.filter(x=>x.importV2Status==='READY'||x.importV2Status==='WARNING');
+  if(!candidates.length){toast('No new Ready or Warning entries are available','error');return;}
+  return runWithImportLoading('Bulk importing new entries...',async()=>{
+    try{
+      const payloadByKey=new Map(),previewIdsByKey=new Map();
+      candidates.forEach(item=>{
+        const e=item.entry||{};
+        (item.selectedEmployeeIds||[]).forEach(emp=>{
+          const key=importV2BusinessKey(e.taskCode,e.jobRole,emp.techId);
+          if(importV21EntryByKey.has(key)||payloadByKey.has(key))return;
+          const id=newId('e_');
+          payloadByKey.set(key,{...e,id,businessKey:key,techId:emp.techId,techName:emp.techName,taskCode:importV2Norm(e.taskCode),time:String(e.time||'').slice(0,10),importedSource:'ComponentTATStatus',importBatchId:importV2BatchId,importExcelRow:Number(item.row)||null,approvalStatus:'pending'});
+          previewIdsByKey.set(key,String(item.id));
+        });
+      });
+      const payload=[...payloadByKey.values()];
+      if(!payload.length){toast('All entries already exist; nothing new to import','info');return;}
+      const saved=await importV21BulkUpsert('entries',payload,{onConflict:'businessKey',ignoreDuplicates:true},400);
+      const savedKeys=new Set(saved.map(e=>e.businessKey||importV21EntryKey(e)));
+      const history=saved.map(e=>({business_key:e.businessKey||importV21EntryKey(e),task_code:importV2Norm(e.taskCode),job_role:e.jobRole,employee_id:e.techId,entry_id:e.id,batch_id:importV2BatchId,excel_row:e.importExcelRow||null,part_number:e.pnum||'',work_date:String(e.time||'').slice(0,10)||null,department:e.department||e.dept||'',hours:Number(e.hours)||0,imported_by:CU.id}));
+      if(history.length)await importV21BulkHistory(history);
+      saved.forEach(e=>{const key=e.businessKey||importV21EntryKey(e);importV2HistoryKeys.add(key);importV21EntryByKey.set(key,e);entries.unshift(e);});
+      const successfulPreviewIds=new Set([...savedKeys].map(k=>previewIdsByKey.get(k)).filter(Boolean));
+      productionImportState.preview=preview.filter(item=>!successfulPreviewIds.has(String(item.id)));
+      validateProductionImportPreview();await importV2PersistPreview();
+      if(canManageEntriesUI())renderAllEntries();
+      const blocked=payload.length-saved.length;
+      toast(`Bulk import finished: ${saved.length} new entries imported, ${blocked} concurrent/existing duplicates blocked.`, 'success');
+    }catch(err){console.error(err);toast('Bulk import failed: '+(err?.message||err),'error');}
+  });
+}
+window.commitProductionImport=commitProductionImport;window.commitProdImportFromModal=commitProductionImport;window.commitProdImportResolved=commitProductionImport;
+
+
+// ═══════════════════════════════════════════════════════════════
+// IMPORT v2.2 — CONSTRAINT FIX, PERMANENT IGNORE, EXACT FILTERS
+// ═══════════════════════════════════════════════════════════════
+let importV22IgnoredEmployeeIds = new Set();
+function importV22NormEmployee(v){ return importV2Norm(v); }
+async function importV22LoadIgnoredEmployees(){
+  importV22IgnoredEmployeeIds=new Set();
+  if(!sb)return;
+  try{
+    const {data,error}=await sb.from('import_ignored_employees').select('normalized_employee_id');
+    if(error)throw error;
+    (data||[]).forEach(x=>importV22IgnoredEmployeeIds.add(importV22NormEmployee(x.normalized_employee_id)));
+  }catch(e){console.warn('Ignored employee list unavailable:',e);}
+}
+const _importV2LoadBackendKnowledge_v22=importV2LoadBackendKnowledge;
+importV2LoadBackendKnowledge=async function(){
+  const result=await _importV2LoadBackendKnowledge_v22.apply(this,arguments);
+  await importV22LoadIgnoredEmployees();
+  return result;
+};
+
+// Exclude permanently ignored employee IDs before a preview row is created.
+const _importV2RoleSources_v22=importV2RoleSources;
+importV2RoleSources=function(rawRow){
+  return _importV2RoleSources_v22(rawRow).map(source=>({
+    ...source,
+    ids:(source.ids||[]).filter(id=>!importV22IgnoredEmployeeIds.has(importV22NormEmployee(id)))
+  }));
+};
+
+function importV22RemoveEmployeeFromPreview(rawId){
+  const key=importV22NormEmployee(rawId);
+  const next=[];
+  (productionImportState.preview||[]).forEach(item=>{
+    const originalIds=importV2EmployeeIds(item.rawEmployeeIds);
+    if(!originalIds.some(id=>importV22NormEmployee(id)===key)){next.push(item);return;}
+    const remainingIds=originalIds.filter(id=>importV22NormEmployee(id)!==key);
+    item.rawEmployeeIds=remainingIds.join(',');
+    item.entry={...(item.entry||{}),rawEmployeeIds:item.rawEmployeeIds};
+    item.employeeItems=(item.employeeItems||[]).filter(e=>importV22NormEmployee(e.rawId)!==key&&importV22NormEmployee(e.techId)!==key);
+    item.selectedEmployeeIds=(item.selectedEmployeeIds||[]).filter(e=>importV22NormEmployee(e.rawId)!==key&&importV22NormEmployee(e.techId)!==key);
+    if(!remainingIds.length){
+      importV2Status(item,'SKIPPED',`Employee ID ${rawId} is permanently ignored`);
+      item.ignoredAlways=true;
+    }else{
+      item.entry.techId=item.selectedEmployeeIds[0]?.techId||'';
+      item.entry.techName=item.selectedEmployeeIds[0]?.techName||'';
+    }
+    next.push(item);
+  });
+  productionImportState.preview=next;
+}
+async function importV22IgnoreAlways(rawId){
+  const normalized=importV22NormEmployee(rawId);
+  if(!normalized)return;
+  const {error}=await sb.from('import_ignored_employees').upsert({
+    normalized_employee_id:normalized,
+    original_employee_id:String(rawId).trim(),
+    reason:'Ignored from Production Import by user',
+    ignored_by:CU?.id||'',
+    ignored_at:new Date().toISOString()
+  },{onConflict:'normalized_employee_id'});
+  if(error)throw error;
+  importV22IgnoredEmployeeIds.add(normalized);
+  importV22RemoveEmployeeFromPreview(rawId);
+  validateProductionImportPreview();
+  await importV2PersistPreview();
+}
+function importV22ChooseEmployeeId(target){
+  const ids=importV2EmployeeIds(target?.rawEmployeeIds);
+  if(ids.length<=1)return ids[0]||'';
+  const unresolved=(target.employeeItems||[]).filter(x=>!x.valid).map(x=>x.rawId).filter(Boolean);
+  if(unresolved.length===1)return unresolved[0];
+  const value=window.prompt(`Enter the Employee ID to ignore permanently. Available IDs: ${ids.join(', ')}`,unresolved[0]||ids[0]);
+  return ids.find(id=>importV22NormEmployee(id)===importV22NormEmployee(value))||'';
+}
+function ignoreProductionImportRow(rowIndex,mode='once'){
+  const target=getPreviewItemByRow(rowIndex);if(!target)return;
+  if(mode==='always'){
+    const rawId=importV22ChooseEmployeeId(target);
+    if(!rawId){toast('Select a valid Employee ID to ignore','error');return;}
+    if(!confirm(`Always ignore Employee ID ${rawId}? This ID will be removed from this preview, all matching rows, and future uploads.`))return;
+    importV22IgnoreAlways(rawId)
+      .then(()=>toast(`Employee ID ${rawId} is now ignored permanently. All matching preview requests were removed.`))
+      .catch(e=>toast('Ignore Always failed: '+(e?.message||e),'error'));
+    return;
+  }
+  target.ignoredOnce=true;
+  importV2Status(target,'SKIPPED','Ignored once for this preview');
+  saveProductionImportState();renderImportProduction();refreshProductionImportSummary(productionImportState.preview);
+}
+window.ignoreProductionImportRow=ignoreProductionImportRow;
+
+// Preserve explicit skip/ignore decisions during validation.
+const _importV2Classify_v22=importV2Classify;
+importV2Classify=function(items){
+  const protectedRows=new Map();
+  (items||[]).forEach(i=>{if(i.ignoredOnce||i.ignoredAlways||i.manualSkip)protectedRows.set(String(i.id),{status:'SKIPPED',reason:i.reason});});
+  const result=_importV2Classify_v22(items);
+  (result||[]).forEach(i=>{const p=protectedRows.get(String(i.id));if(p)importV2Status(i,p.status,p.reason);});
+  return result;
+};
+function skipProductionImportRow(rowIndex){
+  const target=getPreviewItemByRow(rowIndex);if(!target)return;
+  target.manualSkip=true;importV2Status(target,'SKIPPED','Row manually skipped');
+  saveProductionImportState();renderImportProduction();refreshProductionImportSummary(productionImportState.preview);
+}
+window.skipProductionImportRow=skipProductionImportRow;
+
+// Exact mutually-exclusive filter categories. Duplicates can no longer appear in Errors.
+function importV22CanonicalStatus(item){
+  const s=String(item?.importV2Status||item?.status||item?.validationStatus||'').trim().toUpperCase();
+  if(s==='DUPLICATE'||item?.isDuplicate===true)return 'DUPLICATE';
+  if(s==='SKIPPED'||item?.isSkipped===true||item?.ignoredOnce||item?.ignoredAlways||item?.manualSkip)return 'SKIPPED';
+  if(s==='READY')return 'READY';
+  if(s==='WARNING'||s==='WARN'||s==='PARTIAL MATCH')return 'WARNING';
+  return 'ERROR';
+}
+function getFilteredProductionImportPreviewRows(tab,rows){
+  const list=Array.isArray(rows)?rows:[];
+  const t=String(tab||'all').toLowerCase();
+  if(t==='all')return list;
+  const wanted=t==='ready'?'READY':t==='errors'?'ERROR':t==='warnings'?'WARNING':t==='duplicates'?'DUPLICATE':t==='skipped'?'SKIPPED':'';
+  return wanted?list.filter(item=>importV22CanonicalStatus(item)===wanted):list;
+}
+window.getFilteredProductionImportPreviewRows=getFilteredProductionImportPreviewRows;
+function setProdImportTab(tab){
+  productionImportState.previewTab=tab;
+  document.querySelectorAll('#prod-import-tabs .prod-import-tab').forEach(el=>el.classList.toggle('on',el.dataset.tab===tab));
+  renderImportProduction();
+}
+window.setProdImportTab=setProdImportTab;
+
+// Ensure an optional Skipped filter exists and show exact category counts on every filter.
+function importV22RefreshFilterLabels(){
+  const tabs=document.getElementById('prod-import-tabs');if(!tabs)return;
+  if(!tabs.querySelector('[data-tab="skipped"]')){
+    const b=document.createElement('button');b.className='prod-import-tab';b.dataset.tab='skipped';b.textContent='Skipped';b.onclick=()=>setProdImportTab('skipped');tabs.appendChild(b);
+  }
+  const rows=productionImportState.preview||[];
+  const labels={all:'All Rows',ready:'Ready',errors:'Errors',warnings:'Warnings',duplicates:'Duplicates',skipped:'Skipped'};
+  tabs.querySelectorAll('.prod-import-tab').forEach(b=>{
+    const tab=b.dataset.tab,count=tab==='all'?rows.length:getFilteredProductionImportPreviewRows(tab,rows).length;
+    b.textContent=`${labels[tab]||tab} (${count})`;
+    b.classList.toggle('on',tab===(productionImportState.previewTab||'all'));
+  });
+}
+const _renderImportProduction_v22=renderImportProduction;
+renderImportProduction=function(){const result=_renderImportProduction_v22.apply(this,arguments);importV22RefreshFilterLabels();return result;};
+window.renderImportProduction=renderImportProduction;
+
+
+// ═══════════════════════════════════════════════════════════════
+// IMPORT v2.3 — WARNING EXPLANATION + STATUS/UI CONSISTENCY
+// ═══════════════════════════════════════════════════════════════
+function importV23WarningExplanation(item){
+  const duplicateCount=(item?.duplicateEmployeeIds||[]).length;
+  const newCount=(item?.newEmployeeIds||[]).length;
+  const missing=(item?.employeeItems||[]).filter(e=>!(e.valid||e.isValid));
+  const valid=(item?.employeeItems||[]).filter(e=>e.valid||e.isValid);
+  if(duplicateCount&&newCount){
+    return `${newCount} employee entr${newCount===1?'y is':'ies are'} new and will be imported; ${duplicateCount} employee entr${duplicateCount===1?'y already exists':'ies already exist'} for the same Task Code and role and will be skipped.`;
+  }
+  if(missing.length&&valid.length){
+    return `${valid.length} valid employee ID${valid.length===1?'':'s'} found; ${missing.length} unresolved employee ID${missing.length===1?'':'s'} require mapping or ignoring.`;
+  }
+  if(item?.reason&&String(item.reason).trim())return String(item.reason).trim();
+  return 'This row requires review before import. Revalidate the row to refresh its detailed warning.';
+}
+function importV23SynchronizeStatus(item){
+  const canonical=importV22CanonicalStatus(item);
+  item.importV2Status=canonical;
+  item.status=canonical;
+  item.validationStatus=canonical;
+  item.severity=canonical==='READY'?'ok':canonical==='WARNING'?'warning':'error';
+  item.canImport=canonical==='READY'||canonical==='WARNING';
+  item.isDuplicate=canonical==='DUPLICATE';
+  item.isSkipped=canonical==='SKIPPED';
+  if(canonical==='WARNING')item.reason=importV23WarningExplanation(item);
+  if(canonical==='DUPLICATE'&&!String(item.reason||'').trim())item.reason='This employee, Task Code, and role combination already exists in Production Entries or repeats in this upload.';
+  if(canonical==='SKIPPED'&&!String(item.reason||'').trim())item.reason='This row was skipped and will not be imported.';
+  if(canonical==='ERROR'&&!String(item.reason||'').trim())item.reason='This row contains a blocking validation error.';
+  return item;
+}
+const _validateProductionImportPreview_v23=validateProductionImportPreview;
+validateProductionImportPreview=function(){
+  const result=_validateProductionImportPreview_v23.apply(this,arguments);
+  (productionImportState.preview||[]).forEach(importV23SynchronizeStatus);
+  saveProductionImportState();
+  renderImportProduction();
+  refreshProductionImportSummary(productionImportState.preview);
+  return result;
+};
+window.validateProductionImportPreview=validateProductionImportPreview;
+
+// The legacy row renderer can label importable WARNINGS as Ready. Correct the rendered
+// validation cell from the same canonical status used by the filter buttons.
+const _renderImportProduction_v23=renderImportProduction;
+renderImportProduction=function(){
+  (productionImportState.preview||[]).forEach(importV23SynchronizeStatus);
+  const result=_renderImportProduction_v23.apply(this,arguments);
+  const active=productionImportState.previewTab||'all';
+  const visible=getFilteredProductionImportPreviewRows(active,productionImportState.preview||[]);
+  const body=document.getElementById('prod-import-body');
+  if(body){
+    [...body.querySelectorAll('tr')].forEach((tr,index)=>{
+      const item=visible[index];if(!item)return;
+      const cell=tr.lastElementChild;if(!cell)return;
+      const canonical=importV22CanonicalStatus(item);
+      const colors={READY:'var(--green)',WARNING:'var(--amber)',ERROR:'var(--rose)',DUPLICATE:'var(--violet)',SKIPPED:'var(--tx3)'};
+      const oldBadges=[...cell.querySelectorAll('.badge,.pill,.status-badge')];
+      const statusBadge=oldBadges[0];
+      if(statusBadge){statusBadge.textContent=canonical;statusBadge.style.color=colors[canonical];}
+      else cell.insertAdjacentHTML('afterbegin',`<span class="badge" style="color:${colors[canonical]};margin-right:6px">${canonical}</span>`);
+      let detail=cell.querySelector('.prod-import-detail');
+      if(!detail){detail=document.createElement('div');detail.className='prod-import-detail';cell.appendChild(detail);}
+      detail.textContent=item.reason||'';
+      detail.style.color=canonical==='WARNING'?'var(--amber)':canonical==='ERROR'?'var(--rose)':canonical==='DUPLICATE'?'var(--violet)':'var(--tx3)';
+    });
+  }
+  importV22RefreshFilterLabels();
+  return result;
+};
+window.renderImportProduction=renderImportProduction;
+
+
+// ═══════════════════════════════════════════════════════════════
+// ALL ENTRIES COUNTS + SEARCHABLE/SORTABLE TECHNICIAN SELECTORS
+// ═══════════════════════════════════════════════════════════════
+const UX_DEFAULTS={allEntriesShowCounts:true,technicianSearchEnabled:true,technicianDefaultSort:'name'};
+function uxSettings(){return {...UX_DEFAULTS,...(settings.userExperience||{})};}
+function compareTechsUX(a,b,sort){
+  const nameA=String(a.name||''),nameB=String(b.name||''),idA=String(a.id||''),idB=String(b.id||'');
+  return sort==='id'?idA.localeCompare(idB,undefined,{numeric:true,sensitivity:'base'}):nameA.localeCompare(nameB,undefined,{numeric:true,sensitivity:'base'})||idA.localeCompare(idB,undefined,{numeric:true});
+}
+function ensureAllEntriesCountPanel(){
+  const page=document.getElementById('pg-allentries');if(!page)return null;
+  let panel=document.getElementById('ae-entry-counts');
+  if(!panel){
+    panel=document.createElement('div');panel.id='ae-entry-counts';panel.style.cssText='display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 12px;';
+    const card=document.getElementById('ae-card');if(card)card.parentNode.insertBefore(panel,card);else page.appendChild(panel);
+  }
+  return panel;
+}
+function renderAllEntriesCounts(){
+  const panel=ensureAllEntriesCountPanel();if(!panel)return;
+  if(!uxSettings().allEntriesShowCounts){panel.style.display='none';return;}panel.style.display='flex';
+  const scopedIds=new Set(scopedTechs().map(t=>t.id));
+  const backendCount=(CR==='dev'?entries:entries.filter(e=>scopedIds.has(e.techId))).length;
+  const filteredCount=getVisibleAllEntries().length;
+  const hasFilters=filteredCount!==backendCount;
+  panel.innerHTML=`<span class="badge" style="padding:7px 11px;color:var(--blue)">Backend entries: <strong>${backendCount.toLocaleString()}</strong></span><span class="badge" style="padding:7px 11px;color:${hasFilters?'var(--amber)':'var(--green)'}">${hasFilters?'Filtered entries':'Displayed entries'}: <strong>${filteredCount.toLocaleString()}</strong></span>${hasFilters?`<span style="font-size:11px;color:var(--tx3)">${(backendCount-filteredCount).toLocaleString()} excluded by current filters</span>`:''}`;
+}
+const _renderAllEntries_ux=renderAllEntries;
+renderAllEntries=function(){const result=_renderAllEntries_ux.apply(this,arguments);renderAllEntriesCounts();return result;};window.renderAllEntries=renderAllEntries;
+
+function techSelectIsEligible(select){
+  if(!select||select.dataset.techUx==='1')return false;
+  const id=String(select.id||'').toLowerCase();
+  if(id.includes('tech')||id==='ae-tech'||id==='asn-ft'||id==='asn-tech'||id==='tc-tech')return true;
+  const values=[...select.options].map(o=>o.value).filter(Boolean),ids=new Set((techs||[]).map(t=>String(t.id)));
+  return values.length>2&&values.filter(v=>ids.has(String(v))).length/values.length>.65;
+}
+function rebuildTechnicianSelect(select,query='',sort){
+  const previous=select.value,first=[...select.options].find(o=>!o.value),q=String(query||'').trim().toLowerCase();
+  const scopeIds=new Set(scopedTechs().map(t=>String(t.id)));
+  const records=(techs||[]).filter(t=>CR==='dev'||scopeIds.has(String(t.id))).filter(t=>`${t.id||''} ${t.name||''} ${deptLabel(t.department)||''}`.toLowerCase().includes(q)).sort((a,b)=>compareTechsUX(a,b,sort));
+  select.innerHTML=`<option value="">${escapeHtml(first?.textContent||'All Technicians')}</option>`+records.map(t=>`<option value="${escapeHtml(String(t.id))}">${escapeHtml(sort==='id'?`${t.id} — ${t.name}`:`${t.name} — ${t.id}`)}${t.department?` · ${escapeHtml(deptLabel(t.department))}`:''}</option>`).join('');
+  if([...select.options].some(o=>o.value===previous))select.value=previous;
+}
+function enhanceTechnicianSelect(select){
+  if(!techSelectIsEligible(select))return;select.dataset.techUx='1';
+  const wrap=document.createElement('span');wrap.className='tech-select-ux';wrap.style.cssText='display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap;';
+  select.parentNode.insertBefore(wrap,select);wrap.appendChild(select);
+  const search=document.createElement('input');search.className='fsel';search.type='search';search.placeholder='Search employee ID or name…';search.style.cssText='min-width:190px;';
+  const sort=document.createElement('select');sort.className='fsel';sort.style.cssText='min-width:115px;';sort.innerHTML='<option value="name">Sort: Name</option><option value="id">Sort: ID</option>';sort.value=uxSettings().technicianDefaultSort;
+  wrap.insertBefore(search,select);wrap.appendChild(sort);
+  const apply=()=>rebuildTechnicianSelect(select,search.value,sort.value);
+  search.addEventListener('input',apply);sort.addEventListener('change',apply);apply();
+}
+function enhanceAllTechnicianSelectors(){
+  if(!uxSettings().technicianSearchEnabled)return;
+  document.querySelectorAll('select').forEach(enhanceTechnicianSelect);
+}
+const techUxObserver=new MutationObserver(()=>{clearTimeout(enhanceAllTechnicianSelectors._t);enhanceAllTechnicianSelectors._t=setTimeout(enhanceAllTechnicianSelectors,50);});
+document.addEventListener('DOMContentLoaded',()=>{enhanceAllTechnicianSelectors();techUxObserver.observe(document.body,{childList:true,subtree:true});});
+
+function ensureUserExperienceSettings(){
+  const system=document.getElementById('pg-system');if(!system||document.getElementById('sys-user-experience-card'))return;
+  const card=document.createElement('div');card.className='card';card.id='sys-user-experience-card';card.style.marginTop='14px';
+  card.innerHTML=`<div class="ch"><span class="ct">⚙️ User Experience Settings</span><button class="btn bp bsm" onclick="saveUserExperienceSettings()">💾 Save</button></div><div class="cb"><label style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><input type="checkbox" id="sys-ux-entry-counts"> Show backend and filtered counts on All Entries</label><label style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><input type="checkbox" id="sys-ux-tech-search"> Enable searchable technician selectors</label><div class="fgroup" style="max-width:320px"><label class="flabel">Default technician sorting</label><select class="finput" id="sys-ux-tech-sort"><option value="name">Name, then ID</option><option value="id">Employee ID, then name</option></select></div><div style="font-size:11px;color:var(--tx3);margin-top:10px">These settings apply throughout the web application. Department access rules remain unchanged.</div></div>`;
+  system.appendChild(card);loadUserExperienceSettings();
+}
+function loadUserExperienceSettings(){const u=uxSettings();const a=document.getElementById('sys-ux-entry-counts'),b=document.getElementById('sys-ux-tech-search');if(a)a.checked=u.allEntriesShowCounts;if(b)b.checked=u.technicianSearchEnabled;sv('sys-ux-tech-sort',u.technicianDefaultSort);}
+async function saveUserExperienceSettings(){settings.userExperience={allEntriesShowCounts:!!document.getElementById('sys-ux-entry-counts')?.checked,technicianSearchEnabled:!!document.getElementById('sys-ux-tech-search')?.checked,technicianDefaultSort:document.getElementById('sys-ux-tech-sort')?.value||'name'};await persistSettings();toast('User experience settings saved. Refreshing controls…');document.querySelectorAll('.tech-select-ux').forEach(w=>{const select=w.querySelector('select[id]');if(select){select.dataset.techUx='';w.parentNode.insertBefore(select,w);w.remove();}});enhanceAllTechnicianSelectors();renderAllEntries();}
+window.saveUserExperienceSettings=saveUserExperienceSettings;
+const _renderSystem_ux=renderSystem;
+renderSystem=function(){const result=_renderSystem_ux.apply(this,arguments);ensureUserExperienceSettings();loadUserExperienceSettings();return result;};window.renderSystem=renderSystem;
+
 </script>
 </body>
 </html>
