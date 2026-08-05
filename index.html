@@ -10602,6 +10602,111 @@ saveProductionImportDefaultMap=function(type,source,target){
 const _doLogin_importV2=doLogin;
 doLogin=async function(){ const result=await _doLogin_importV2.apply(this,arguments); if(CU){await importV2LoadBackendKnowledge();await restoreProductionImportState();} return result; }; window.doLogin=doLogin;
 
+
+// ═══════════════════════════════════════════════════════════════
+// IMPORT v2.1 — BULK COMMIT + AUTHORITATIVE ENTRY DUPLICATES
+// ═══════════════════════════════════════════════════════════════
+let importV21EntryByKey = new Map();
+function importV21EntryKey(e){ return importV2BusinessKey(e?.taskCode,e?.jobRole,e?.techId); }
+async function importV2LoadBackendKnowledge(){
+  importV2HistoryKeys=new Set(); importV21EntryByKey=new Map(); importV2Resolutions={employee:{},part:{},task:{}};
+  if(!sb)return;
+  try{
+    const [{data:existing,error:ee},{data:r,error:re}]=await Promise.all([
+      sb.from('entries').select('id,businessKey,taskCode,jobRole,techId,techName,time,pnum,approvalStatus'),
+      sb.from('import_resolutions').select('*')
+    ]);
+    if(ee)throw ee;if(re)throw re;
+    (existing||[]).forEach(e=>{
+      const key=e.businessKey||importV21EntryKey(e);
+      if(key){ importV2HistoryKeys.add(key); importV21EntryByKey.set(key,e); }
+    });
+    (r||[]).forEach(x=>{importV2Resolutions[x.resolution_type][importV2ResolutionKey(x.resolution_type,x.source_key,x.role,x.department)]=x.target_value;});
+    importV2BackendAvailable=true;
+  }catch(e){importV2BackendAvailable=false;console.warn('Import v2.1 backend unavailable:',e);}
+}
+function importV2Classify(items){
+  const current=new Set();
+  items.forEach(item=>{
+    const e=item.entry||{};
+    if(item.importV2Status==='SKIPPED')return;
+    if(!e.taskCode)return importV2Status(item,'SKIPPED','No Task Code / WP ID');
+    const rawIds=importV2EmployeeIds(item.rawEmployeeIds);
+    if(!rawIds.length)return importV2Status(item,'SKIPPED','No Employee ID in the configured role column');
+    if(!e.time)return importV2Status(item,'ERROR',item.dateValidation||'Missing or invalid completion date');
+    if(!e.pnum||!findPartByNumber(e.pnum))return importV2Status(item,'ERROR','Part not found');
+    const valid=item.selectedEmployeeIds||[],missing=(item.employeeItems||[]).filter(x=>!x.valid);
+    if(!valid.length)return importV2Status(item,'ERROR','No valid employee found');
+    item.businessKeys=[];item.duplicateEmployeeIds=[];item.newEmployeeIds=[];item.duplicateMatches=[];
+    valid.forEach(emp=>{
+      const key=importV2BusinessKey(e.taskCode,e.jobRole,emp.techId);item.businessKeys.push(key);
+      const match=importV21EntryByKey.get(key);
+      if(current.has(key)||match){item.duplicateEmployeeIds.push(emp.techId);if(match)item.duplicateMatches.push(match);}
+      else{current.add(key);item.newEmployeeIds.push(emp.techId);}
+    });
+    if(!item.newEmployeeIds.length){
+      const m=item.duplicateMatches[0];
+      const detail=m?` Existing entry: ${m.techName||m.techId}, ${m.jobRole}, ${m.taskCode}, ${String(m.time||'').slice(0,10)}, ID ${m.id}.`:'';
+      return importV2Status(item,'DUPLICATE','All employee/task/role combinations already exist in Production Entries.'+detail);
+    }
+    if(item.duplicateEmployeeIds.length)return importV2Status(item,'WARNING',`${item.newEmployeeIds.length} new employee entry/entries; ${item.duplicateEmployeeIds.length} existing Production Entry duplicate(s) will be skipped`);
+    if(missing.length)return importV2Status(item,'WARNING',`${valid.length} valid employee(s); ${missing.length} unresolved ID(s) require mapping`);
+    return importV2Status(item,'READY','');
+  });
+  return items;
+}
+async function importV21BulkUpsert(table,rows,options={},chunkSize=400){
+  const saved=[];
+  for(let i=0;i<rows.length;i+=chunkSize){
+    const {data,error}=await sb.from(table).upsert(rows.slice(i,i+chunkSize),options).select('*');
+    if(error)throw error;if(data)saved.push(...data);
+  }
+  return saved;
+}
+async function importV21BulkHistory(rows,chunkSize=500){
+  for(let i=0;i<rows.length;i+=chunkSize){
+    const {error}=await sb.from('import_history').upsert(rows.slice(i,i+chunkSize),{onConflict:'business_key'});
+    if(error)throw error;
+  }
+}
+async function commitProductionImport(){
+  if(!canI('importproduction','import')){toast('Not allowed','error');return;}
+  await importV2LoadBackendKnowledge();
+  if(!importV2BackendAvailable){toast('Run protrack_import_v2_1_performance_migration.sql in Supabase first.','error');return;}
+  validateProductionImportPreview();
+  const preview=productionImportState.preview||[],candidates=preview.filter(x=>x.importV2Status==='READY'||x.importV2Status==='WARNING');
+  if(!candidates.length){toast('No new Ready or Warning entries are available','error');return;}
+  return runWithImportLoading('Bulk importing new entries...',async()=>{
+    try{
+      const payloadByKey=new Map(),previewIdsByKey=new Map();
+      candidates.forEach(item=>{
+        const e=item.entry||{};
+        (item.selectedEmployeeIds||[]).forEach(emp=>{
+          const key=importV2BusinessKey(e.taskCode,e.jobRole,emp.techId);
+          if(importV21EntryByKey.has(key)||payloadByKey.has(key))return;
+          const id=newId('e_');
+          payloadByKey.set(key,{...e,id,businessKey:key,techId:emp.techId,techName:emp.techName,taskCode:importV2Norm(e.taskCode),time:String(e.time||'').slice(0,10),importedSource:'ComponentTATStatus',importBatchId:importV2BatchId,importExcelRow:Number(item.row)||null,approvalStatus:'pending'});
+          previewIdsByKey.set(key,String(item.id));
+        });
+      });
+      const payload=[...payloadByKey.values()];
+      if(!payload.length){toast('All entries already exist; nothing new to import','info');return;}
+      const saved=await importV21BulkUpsert('entries',payload,{onConflict:'businessKey',ignoreDuplicates:true},400);
+      const savedKeys=new Set(saved.map(e=>e.businessKey||importV21EntryKey(e)));
+      const history=saved.map(e=>({business_key:e.businessKey||importV21EntryKey(e),task_code:importV2Norm(e.taskCode),job_role:e.jobRole,employee_id:e.techId,entry_id:e.id,batch_id:importV2BatchId,excel_row:e.importExcelRow||null,part_number:e.pnum||'',work_date:String(e.time||'').slice(0,10)||null,department:e.department||e.dept||'',hours:Number(e.hours)||0,imported_by:CU.id}));
+      if(history.length)await importV21BulkHistory(history);
+      saved.forEach(e=>{const key=e.businessKey||importV21EntryKey(e);importV2HistoryKeys.add(key);importV21EntryByKey.set(key,e);entries.unshift(e);});
+      const successfulPreviewIds=new Set([...savedKeys].map(k=>previewIdsByKey.get(k)).filter(Boolean));
+      productionImportState.preview=preview.filter(item=>!successfulPreviewIds.has(String(item.id)));
+      validateProductionImportPreview();await importV2PersistPreview();
+      if(canManageEntriesUI())renderAllEntries();
+      const blocked=payload.length-saved.length;
+      toast(`Bulk import finished: ${saved.length} new entries imported, ${blocked} concurrent/existing duplicates blocked.`, 'success');
+    }catch(err){console.error(err);toast('Bulk import failed: '+(err?.message||err),'error');}
+  });
+}
+window.commitProductionImport=commitProductionImport;window.commitProdImportFromModal=commitProductionImport;window.commitProdImportResolved=commitProductionImport;
+
 </script>
 </body>
 </html>
