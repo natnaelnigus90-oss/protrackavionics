@@ -10959,7 +10959,7 @@ function renderAllEntriesCounts(){
   const backendCount=(CR==='dev'?entries:entries.filter(e=>scopedIds.has(e.techId))).length;
   const filteredCount=getVisibleAllEntries().length;
   const hasFilters=filteredCount!==backendCount;
-  panel.innerHTML=`<span class="badge" style="padding:7px 11px;color:var(--blue)">Backend entries: <strong>${backendCount.toLocaleString()}</strong></span><span class="badge" style="padding:7px 11px;color:${hasFilters?'var(--amber)':'var(--green)'}">${hasFilters?'Filtered entries':'Displayed entries'}: <strong>${filteredCount.toLocaleString()}</strong></span>${hasFilters?`<span style="font-size:11px;color:var(--tx3)">${(backendCount-filteredCount).toLocaleString()} excluded by current filters</span>`:''}`;
+  panel.innerHTML=`<span class="badge" style="padding:7px 11px;color:var(--blue)">Total entries: <strong>${backendCount.toLocaleString()}</strong></span><span class="badge" style="padding:7px 11px;color:${hasFilters?'var(--amber)':'var(--green)'}">${hasFilters?'Filtered entries':'Displayed entries'}: <strong>${filteredCount.toLocaleString()}</strong></span>${hasFilters?`<span style="font-size:11px;color:var(--tx3)">${(backendCount-filteredCount).toLocaleString()} excluded by current filters</span>`:''}`;
 }
 const _renderAllEntries_ux=renderAllEntries;
 renderAllEntries=function(){const result=_renderAllEntries_ux.apply(this,arguments);renderAllEntriesCounts();return result;};window.renderAllEntries=renderAllEntries;
