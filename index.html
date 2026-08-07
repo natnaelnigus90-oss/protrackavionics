@@ -1650,7 +1650,7 @@ input[type="date"] {
 <div class="al al-b"><span class="al-ico">📌</span><div>Assignments count toward the technician's achieved hours and are displayed on their stats page.</div></div>
 <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:14px;align-items:start;">
 <div class="card">
-<div class="ch"><span class="ct">➕ New Assignment</span></div>
+<div class="ch"><span class="ct" id="asn-form-title">➕ New Assignment</span></div>
 <div class="cb">
 <div class="fg f2">
 <div class="fgroup ff"><label class="flabel">Technician *</label><select class="fselect" id="asn-tech"><option value="">— Select —</option></select></div>
@@ -1660,7 +1660,7 @@ input[type="date"] {
 <div class="fgroup ff"><label class="flabel">Comment</label><input class="finput" id="asn-comment" placeholder="Optional..."/></div>
 </div>
 <div style="display:flex;gap:8px;margin-top:12px;">
-<button class="btn bp" data-perm="assignments:create" onclick="submitAssignment()">✓ Add</button>
+<button class="btn bp" id="asn-save-btn" data-perm="assignments:create" onclick="submitAssignment()">✓ Add</button><input id="asn-edit-id" type="hidden" value=""/>
 <button class="btn bo" onclick="clearAssignment()">✕ Cancel</button>
 </div>
 </div>
@@ -2876,7 +2876,7 @@ const PERMISSION_SCHEMA = [
   { key: 'oversight', label: 'Oversight & Reporting', icon: '📈', pages: [
     { key: 'dashboard', label: 'Dashboard', actions: ['view', 'export'] },
     { key: 'allentries', label: 'All Entries', actions: ['view', 'edit', 'delete', 'approve', 'reject', 'export'] },
-    { key: 'assignments', label: 'Assignments', actions: ['view', 'create', 'delete'] },
+    { key: 'assignments', label: 'Assignments', actions: ['view', 'create', 'edit', 'delete'] },
     { key: 'reports', label: 'Reports', actions: ['view', 'export'] }
   ]},
   { key: 'shopops', label: 'Shop Operations', icon: '🏭', pages: [
@@ -2908,7 +2908,7 @@ function mkPerm(actions) { const o = {}; actions.forEach(a => o[a] = true); retu
 const DEFAULT_PERMISSIONS_V2 = {
   lead: {
     dashboard: mkPerm(['view', 'export']), controllerentry: mkPerm(['view', 'submit']),
-    assignments: mkPerm(['view', 'create', 'delete']), allentries: mkPerm(['view', 'edit', 'delete', 'approve', 'reject', 'export']),
+    assignments: mkPerm(['view', 'create', 'edit', 'delete']), allentries: mkPerm(['view', 'edit', 'delete', 'approve', 'reject', 'export']),
     importproduction: mkPerm(['view', 'import', 'removeduplicates', 'acceptduplicates']), reports: mkPerm(['view', 'export']), ratios: mkPerm(['view', 'edit']),
     taskgroups: mkPerm(['view', 'export']), shopperformance: mkPerm(['view', 'edit', 'comment']), shopreport: mkPerm(['view', 'export', 'comment', 'comparison', 'exportimage']),
     leaders: mkPerm(['view', 'create', 'edit', 'delete']), controllers: mkPerm(['view', 'create', 'edit', 'delete']),
@@ -9640,32 +9640,55 @@ function populateAsnSels() {
   });
 }
 window.populateAsnSels = populateAsnSels;
+function resetAssignmentEditState() {
+  const edit = document.getElementById('asn-edit-id'); if (edit) edit.value = '';
+  stxt('asn-form-title', '➕ New Assignment');
+  const btn = document.getElementById('asn-save-btn'); if (btn) { btn.textContent = '✓ Add'; btn.dataset.perm = 'assignments:create'; }
+}
+const _clearAssignmentBase = clearAssignment;
+clearAssignment = function () { _clearAssignmentBase(); resetAssignmentEditState(); populateAsnSels(); };
+window.clearAssignment = clearAssignment;
+window.editAssignment = function (id) {
+  if (!canI('assignments', 'edit')) { toast('Not allowed', 'error'); return; }
+  const a = assignments.find(x => x.id === id);
+  if (!a) { toast('Assignment not found', 'error'); return; }
+  if (!assignmentInScope(a)) { toast('You can edit only assignments in your department scope', 'error'); return; }
+  populateAsnSels();
+  sv('asn-edit-id', a.id); sv('asn-tech', a.techId || ''); sv('asn-desc', a.desc || '');
+  sv('asn-hrs', a.hrs ?? ''); sv('asn-date', (a.date || todayEAT()).slice(0, 10)); sv('asn-comment', a.comment || '');
+  stxt('asn-form-title', '✏ Edit Assignment');
+  const btn = document.getElementById('asn-save-btn'); if (btn) { btn.textContent = '✓ Update'; btn.dataset.perm = 'assignments:edit'; btn.style.display = ''; }
+  document.getElementById('pg-assignments')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById('asn-desc')?.focus();
+};
 async function submitAssignment() {
-  if (!canI('assignments', 'create')) { toast('Not allowed', 'error'); return; }
+  const editId = document.getElementById('asn-edit-id')?.value || '';
+  const action = editId ? 'edit' : 'create';
+  if (!canI('assignments', action)) { toast('Not allowed', 'error'); return; }
   const techId = document.getElementById('asn-tech')?.value;
   const desc = sanitize(document.getElementById('asn-desc')?.value);
   const hrs = sanitizeNum(document.getElementById('asn-hrs')?.value);
   if (!techId || !desc || !hrs) { toast('Fill all required fields', 'error'); return; }
   if (!assignmentTechInScope(techId)) { toast('You can assign only technicians in your department scope', 'error'); return; }
+  const existing = editId ? assignments.find(a => a.id === editId) : null;
+  if (editId && (!existing || !assignmentInScope(existing))) { toast('Assignment cannot be edited', 'error'); return; }
   const tech = getAssignmentScopedTechs().find(t => t.id === techId);
   const asn = {
-    techId,
-    techName: tech?.name || techId,
-    department: tech?.department || '',
-    desc,
-    hrs,
+    ...(existing || {}),
+    ...(editId ? { id: editId } : {}),
+    techId, techName: tech?.name || techId, department: tech?.department || '', desc, hrs,
     date: document.getElementById('asn-date')?.value || todayEAT(),
     comment: sanitize(document.getElementById('asn-comment')?.value),
-    assignedBy: CU?.name || CU?.id || ''
+    assignedBy: existing?.assignedBy || CU?.name || CU?.id || '',
+    updatedBy: CU?.name || CU?.id || '', updatedAt: new Date().toISOString()
   };
   try {
     const saved = await DB.upsert('assignments', asn);
-    assignments.unshift(saved);
-    clearAssignment();
-    populateAsnSels();
-    renderAssignments();
-    toast('Assignment added');
-  } catch (e) { toast('Save failed: ' + (e?.message || e), 'error'); }
+    const idx = assignments.findIndex(a => a.id === saved.id);
+    if (idx >= 0) assignments[idx] = saved; else assignments.unshift(saved);
+    clearAssignment(); renderAssignments(); renderMyStats();
+    toast(editId ? 'Assignment updated' : 'Assignment added');
+  } catch (e) { toast((editId ? 'Update' : 'Save') + ' failed: ' + (e?.message || e), 'error'); }
 }
 window.submitAssignment = submitAssignment;
 function renderAssignments() {
@@ -9696,7 +9719,10 @@ function renderAssignments() {
       <div class="asn-desc">${sanitize(a.desc)}</div>
       <div class="asn-meta"><span class="asn-hrs">⏱ ${a.hrs}h</span><span>${fmtEAT(a.date, 'date')}</span><span>by ${sanitize(a.assignedBy || '')}</span></div>
       ${a.comment ? `<div style="font-size:11px;color:var(--tx3);margin-top:4px;">💬 ${sanitize(a.comment)}</div>` : ''}</div>
-      <button class="btn bd bsm" style="${canI('assignments', 'delete') ? '' : 'display:none;'}" onclick="delAsn('${escapeHtml(a.id)}')">🗑</button></div>`;
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn bo bsm" style="${canI('assignments', 'edit') ? '' : 'display:none;'}" onclick="editAssignment('${escapeHtml(a.id)}')">✏ Edit</button>
+        <button class="btn bd bsm" style="${canI('assignments', 'delete') ? '' : 'display:none;'}" onclick="delAsn('${escapeHtml(a.id)}')">🗑 Delete</button>
+      </div></div>`;
   }).join('');
 }
 window.renderAssignments = renderAssignments;
