@@ -1820,7 +1820,7 @@ input[type="date"] {
 </div>
 <!-- RATIOS -->
 <div class="pg" id="pg-ratios">
-<div class="al al-b"><span class="al-ico">⚖️</span><div>Tech% + Under Supervision% must = 100%. Inspector and Preliminary Inspector use fixed hours — completely separate from SDT. If no supervision is recorded for a task, the technician gets 100% of SDT.</div></div>
+<div class="al al-b"><span class="al-ico">⚖️</span><div>Technician% + Under Supervision% may total more than 100%. Example: for a 100-hour part, a combined ratio of 130% allocates 130 total hours when both roles are recorded. Inspector and Preliminary Inspector remain separate fixed hours.</div></div>
 <div class="card" style="margin-bottom:14px;">
 <div class="ch"><span class="ct">🗑 Scrap Operation — Inspector Default Hours</span><button class="btn bp bsm" data-perm="ratios:edit" onclick="saveScrapDefaultHrs()">💾 Save</button></div>
 <div class="cb">
@@ -1841,18 +1841,18 @@ input[type="date"] {
 <div class="cb">
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:16px;">
 <div>
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"><span style="font-weight:700;color:var(--blue);">🔧 Technician</span><div style="display:flex;align-items:center;gap:6px;"><input class="ratio-input" id="r-tech" max="100" min="0" oninput="onRI()" type="number" value="25"/><span style="color:var(--tx2);font-size:13px;">%</span></div></div>
-<input class="ratio-slider rs-tech" id="rs-tech" max="100" min="0" oninput="syncSl('tech')" type="range" value="25"/>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"><span style="font-weight:700;color:var(--blue);">🔧 Technician</span><div style="display:flex;align-items:center;gap:6px;"><input class="ratio-input" id="r-tech" max="1000" min="0" oninput="onRI()" type="number" value="25"/><span style="color:var(--tx2);font-size:13px;">%</span></div></div>
+<input class="ratio-slider rs-tech" id="rs-tech" max="1000" min="0" oninput="syncSl('tech')" type="range" value="25"/>
 </div>
 <div>
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"><span style="font-weight:700;color:var(--green);">👁 Under Supervision</span><div style="display:flex;align-items:center;gap:6px;"><input class="ratio-input" id="r-sup" max="100" min="0" oninput="onRI()" type="number" value="75"/><span style="color:var(--tx2);font-size:13px;">%</span></div></div>
-<input class="ratio-slider rs-sup" id="rs-sup" max="100" min="0" oninput="syncSl('sup')" type="range" value="75"/>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"><span style="font-weight:700;color:var(--green);">👁 Under Supervision</span><div style="display:flex;align-items:center;gap:6px;"><input class="ratio-input" id="r-sup" max="1000" min="0" oninput="onRI()" type="number" value="75"/><span style="color:var(--tx2);font-size:13px;">%</span></div></div>
+<input class="ratio-slider rs-sup" id="rs-sup" max="1000" min="0" oninput="syncSl('sup')" type="range" value="75"/>
 </div>
 </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--bdr);border-bottom:1px solid var(--bdr);margin-bottom:14px;">
 <span style="font-size:12px;color:var(--tx2);">SDT Split:</span>
 <div class="rv" id="rv-def" style="max-width:none;flex:1;"><div class="rv-s" style="background:var(--blue);flex:25;"></div><div class="rv-s" style="background:var(--green);flex:75;"></div></div>
-<span style="font-size:12px;color:var(--tx2);">Total:</span><span class="rt ok" id="rt-def">100%</span>
+<span style="font-size:12px;color:var(--tx2);">Total:</span><span class="rt ok" id="rt-def">100%</span><span id="rt-def-example" style="font-size:11px;color:var(--tx3);margin-left:8px;">100 standard hours → 100 allocated hours</span>
 </div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
 <div style="background:var(--vdim);border:1px solid rgba(139,92,246,.2);border-radius:8px;padding:12px 14px;">
@@ -2449,8 +2449,8 @@ input[type="date"] {
 <span id="mro-sel-num" style="color:var(--green);font-weight:700;"></span> — <span id="mro-sel-name" style="color:var(--tx2);"></span>
 </div>
 </div>
-<div class="fgroup"><label class="flabel" style="color:var(--blue);">🔧 Tech %</label><input class="ratio-input" id="mro-tech" max="100" min="0" oninput="updOvUI()" style="width:100%;" type="number" value="25"/></div>
-<div class="fgroup"><label class="flabel" style="color:var(--green);">👁 Sup %</label><input class="ratio-input" id="mro-sup" max="100" min="0" oninput="updOvUI()" style="width:100%;" type="number" value="75"/></div>
+<div class="fgroup"><label class="flabel" style="color:var(--blue);">🔧 Tech %</label><input class="ratio-input" id="mro-tech" max="1000" min="0" oninput="updOvUI()" style="width:100%;" type="number" value="25"/></div>
+<div class="fgroup"><label class="flabel" style="color:var(--green);">👁 Sup %</label><input class="ratio-input" id="mro-sup" max="1000" min="0" oninput="updOvUI()" style="width:100%;" type="number" value="75"/></div>
 <div style="grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bdr);">
 <span style="font-size:12px;color:var(--tx2);">Total:</span><span class="rt ok" id="rt-ov">100%</span>
 <div class="rv" id="rv-ov" style="flex:1;"><div class="rv-s" style="background:var(--blue);flex:25;"></div><div class="rv-s" style="background:var(--green);flex:75;"></div></div>
@@ -2576,29 +2576,16 @@ function newId(prefix = '') { return prefix + Date.now().toString(36) + Math.ran
 
 const DB = {
   async list(table) {
-    // Supabase/PostgREST returns at most 1,000 rows per request by default.
-    // Read the table in stable, non-overlapping pages so records above 1,000
-    // are loaded into the application instead of being silently hidden.
-    const pageSize = 1000;
-    const rows = [];
+    const pageSize = 1000, rows = [];
     let from = 0;
-
     while (true) {
-      const { data, error } = await sb
-        .from(table)
-        .select('*')
-        .order('id', { ascending: true })
-        .range(from, from + pageSize - 1);
-
+      const { data, error } = await sb.from(table).select('*').order('id', { ascending: true }).range(from, from + pageSize - 1);
       if (error) throw error;
-
       const page = data || [];
       rows.push(...page);
-
       if (page.length < pageSize) break;
       from += pageSize;
     }
-
     return rows;
   },
   async upsert(table, row) {
@@ -4252,7 +4239,8 @@ window.renderRatios = renderRatios;
 function onRI() {
   const tech = gv('r-tech'), sup = gv('r-sup'), tot = tech + sup;
   const el = document.getElementById('rt-def'), rv = document.getElementById('rv-def');
-  if (el) { el.textContent = tot + '%'; el.className = 'rt ' + (tot === 100 ? 'ok' : 'bad'); }
+  if (el) { el.textContent = tot + '%'; el.className = 'rt ' + (tot > 0 ? 'ok' : 'bad'); }
+  const example = document.getElementById('rt-def-example'); if (example) example.textContent = `100 standard hours → ${tot.toFixed(2).replace(/\.00$/, '')} allocated hours`;
   if (rv) { const s = rv.querySelectorAll('.rv-s'); if (s[0]) s[0].style.flex = Math.max(tech, .01); if (s[1]) s[1].style.flex = Math.max(sup, .01); }
 }
 function syncSl(k) { const sl = document.getElementById('rs-' + k), inp = document.getElementById('r-' + k); if (sl && inp) inp.value = sl.value; onRI(); }
@@ -4260,7 +4248,7 @@ window.onRI = onRI; window.syncSl = syncSl;
 window.saveDefaultRatios = async function () {
   if (!canI('ratios', 'edit')) { toast('Not allowed', 'error'); return; }
   const tech = gv('r-tech'), sup = gv('r-sup');
-  if (tech + sup !== 100) { toast('Tech% + Sup% must equal 100%', 'error'); return; }
+  if (tech + sup <= 0) { toast('Technician% + Under Supervision% must be greater than 0%', 'error'); return; }
   settings.ratios = { tech, sup, inspHrs: gv('r-insp-hrs'), prelimHrs: gv('r-prelim-hrs') };
   await persistSettings(); toast('Default ratios saved');
 };
@@ -4274,7 +4262,7 @@ function renderOvList() {
       <div><span class="mono" style="color:var(--amber);">${pnum}</span><div style="font-size:10px;color:var(--tx3);">${pt ? pt.name : '—'}</div></div>
       <span class="mono" style="color:var(--blue);">${r.tech || 0}%</span><span class="mono" style="color:var(--green);">${r.sup || 0}%</span>
       <span class="mono" style="color:var(--violet);">${r.inspHrs || 0}h</span><span class="mono" style="color:var(--cyan);">${r.prelim || 0}h</span>
-      <span class="rt ${tot === 100 ? 'ok' : 'bad'}" style="font-size:12px;">${tot}%</span><span style="font-size:11.5px;color:var(--tx2);">${r.note || '—'}</span>
+      <span class="rt ${tot > 0 ? 'ok' : 'bad'}" style="font-size:12px;">${tot}%</span><span style="font-size:11.5px;color:var(--tx2);">${r.note || '—'}</span>
       <button class="btn bd bsm" onclick="delOverride('${pnum}')">🗑</button></div>`;
   }).join('');
 }
@@ -4289,7 +4277,7 @@ window.openAddOverride = function () {
 function updOvUI() {
   const tech = gv('mro-tech'), sup = gv('mro-sup'), tot = tech + sup;
   const el = document.getElementById('rt-ov'), rv = document.getElementById('rv-ov');
-  if (el) { el.textContent = tot + '%'; el.className = 'rt ' + (tot === 100 ? 'ok' : 'bad'); }
+  if (el) { el.textContent = tot + '%'; el.className = 'rt ' + (tot > 0 ? 'ok' : 'bad'); }
   if (rv) { const s = rv.querySelectorAll('.rv-s'); if (s[0]) s[0].style.flex = Math.max(tech, .01); if (s[1]) s[1].style.flex = Math.max(sup, .01); }
 }
 window.updOvUI = updOvUI;
@@ -4330,7 +4318,7 @@ window.saveOverride = async function () {
   const pnum = document.getElementById('mro-pnum')?.value.trim();
   const tech = gv('mro-tech'), sup = gv('mro-sup'), inspHrs = gv('mro-insp'), prelim = gv('mro-prelim'), note = document.getElementById('mro-note')?.value.trim();
   if (!pnum) { toast('Select a part', 'error'); return; }
-  if (tech + sup !== 100) { toast('Tech% + Sup% must equal 100%', 'error'); return; }
+  if (tech + sup <= 0) { toast('Technician% + Under Supervision% must be greater than 0%', 'error'); return; }
   if (!settings.partRatios) settings.partRatios = {};
   settings.partRatios[pnum] = { tech, sup, inspHrs, prelim, note };
   await persistSettings(); closeModal('m-override'); renderOvList(); toast('Override saved for ' + pnum);
