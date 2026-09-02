@@ -4719,7 +4719,7 @@ function excelSerialToDate(serial) {
  return new Date(epoch + Math.floor(num) * 86400000);
 }
 function normalizeImportDate(value) {
- if (value instanceof Date) return formatDateUTC(value);
+ if (value instanceof Date) return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
  const raw = cleanImportField(value);
  if (!raw) return '';
  if (/^\d+(?:\.\d+)?$/.test(raw)) {
@@ -10189,7 +10189,7 @@ const PROD_IMPORT_ROLE_COLUMN_DEFAULTS={
  technician:'AE',
  underSupervision:'AJ',
  preliminary:'AM',
- date:'E'
+ date:'K'
 };
 function normalizeExcelColumnLetter(v){
  const x=String(v||'').trim().toUpperCase().replace(/[^A-Z]/g,'');
@@ -10202,7 +10202,7 @@ function getProdImportRoleColumns(){
  technician:normalizeExcelColumnLetter(configured.technician)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.technician,
  underSupervision:normalizeExcelColumnLetter(configured.underSupervision)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.underSupervision,
  preliminary:normalizeExcelColumnLetter(configured.preliminary)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.preliminary,
- date:normalizeExcelColumnLetter(configured.date)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.date
+ date:'K'
  };
 }
 function excelColumnToIndex(letter){
@@ -12699,8 +12699,7 @@ if(typeof oldToast==='function')window.toast=function(message,type){return oldTo
     const configuredDateBuild = function(row,rowNo,rawRow){
       const copy = Object.assign({}, row || {});
       try {
-        const columns = getProdImportRoleColumns();
-        const dateValue = readRawExcelColumn(rawRow, columns.date);
+        const dateValue = readRawExcelColumn(rawRow, 'K');
         copy['Date Completed'] = dateValue;
         copy['Completion Date'] = dateValue;
         copy.Date = dateValue;
