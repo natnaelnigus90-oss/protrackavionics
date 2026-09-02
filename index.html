@@ -10164,7 +10164,8 @@ const PROD_IMPORT_ROLE_COLUMN_DEFAULTS={
  inspector:'Q',
  technician:'AE',
  underSupervision:'AJ',
- preliminary:'AM'
+ preliminary:'AM',
+ date:'E'
 };
 function normalizeExcelColumnLetter(v){
  const x=String(v||'').trim().toUpperCase().replace(/[^A-Z]/g,'');
@@ -10176,7 +10177,8 @@ function getProdImportRoleColumns(){
  inspector:normalizeExcelColumnLetter(configured.inspector)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.inspector,
  technician:normalizeExcelColumnLetter(configured.technician)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.technician,
  underSupervision:normalizeExcelColumnLetter(configured.underSupervision)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.underSupervision,
- preliminary:normalizeExcelColumnLetter(configured.preliminary)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.preliminary
+ preliminary:normalizeExcelColumnLetter(configured.preliminary)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.preliminary,
+ date:normalizeExcelColumnLetter(configured.date)||PROD_IMPORT_ROLE_COLUMN_DEFAULTS.date
  };
 }
 function excelColumnToIndex(letter){
@@ -10189,17 +10191,18 @@ function readRawExcelColumn(rawRow,letter){
 function ensureProdImportRoleColumnSettings(){
  const system=document.getElementById('pg-system');if(!system||document.getElementById('prod-import-role-columns-card'))return;
  const card=document.createElement('div');card.className='card';card.id='prod-import-role-columns-card';card.style.marginTop='14px';
- card.innerHTML=`<div class="ch"><span class="ct">📥 Production Import Role Columns</span><button class="btn bp bsm" onclick="saveProdImportRoleColumns()">💾 Save Columns</button></div><div class="cb"><div class="al al-b"><span class="al-ico">ℹ️</span><div>Set the Excel column used to read Employee IDs for each production role. Enter Excel column letters such as Q, AE, AJ, or AM.</div></div><div class="fg f2"><div class="fgroup"><label class="flabel">Inspector Employee ID Column</label><input class="finput" id="sys-import-col-inspector" maxlength="3" placeholder="Q"></div><div class="fgroup"><label class="flabel">Technician Employee ID Column</label><input class="finput" id="sys-import-col-technician" maxlength="3" placeholder="AE"></div><div class="fgroup"><label class="flabel">Under Supervision Employee ID Column</label><input class="finput" id="sys-import-col-supervision" maxlength="3" placeholder="AJ"></div><div class="fgroup"><label class="flabel">Preliminary Inspector Employee ID Column</label><input class="finput" id="sys-import-col-preliminary" maxlength="3" placeholder="AM"></div></div><div style="display:flex;gap:8px;margin-top:12px"><button class="btn bo bsm" onclick="resetProdImportRoleColumns()">↺ Reset Defaults</button><span id="sys-import-col-summary" style="font-size:12px;color:var(--tx2);align-self:center"></span></div></div>`;
+ card.innerHTML=`<div class="ch"><span class="ct">📥 Production Import Role Columns</span><button class="btn bp bsm" onclick="saveProdImportRoleColumns()">💾 Save Columns</button></div><div class="cb"><div class="al al-b"><span class="al-ico">ℹ️</span><div>Set the Excel column used to read the production date and the Employee IDs for each production role. Enter Excel column letters such as E, Q, AE, AJ, or AM.</div></div><div class="fg f2"><div class="fgroup"><label class="flabel">Production Date Column</label><input class="finput" id="sys-import-col-date" maxlength="3" placeholder="E"></div><div class="fgroup"><label class="flabel">Inspector Employee ID Column</label><input class="finput" id="sys-import-col-inspector" maxlength="3" placeholder="Q"></div><div class="fgroup"><label class="flabel">Technician Employee ID Column</label><input class="finput" id="sys-import-col-technician" maxlength="3" placeholder="AE"></div><div class="fgroup"><label class="flabel">Under Supervision Employee ID Column</label><input class="finput" id="sys-import-col-supervision" maxlength="3" placeholder="AJ"></div><div class="fgroup"><label class="flabel">Preliminary Inspector Employee ID Column</label><input class="finput" id="sys-import-col-preliminary" maxlength="3" placeholder="AM"></div></div><div style="display:flex;gap:8px;margin-top:12px"><button class="btn bo bsm" onclick="resetProdImportRoleColumns()">↺ Reset Defaults</button><span id="sys-import-col-summary" style="font-size:12px;color:var(--tx2);align-self:center"></span></div></div>`;
  system.appendChild(card);loadProdImportRoleColumnInputs();
 }
 function loadProdImportRoleColumnInputs(){
- const c=getProdImportRoleColumns();sv('sys-import-col-inspector',c.inspector);sv('sys-import-col-technician',c.technician);sv('sys-import-col-supervision',c.underSupervision);sv('sys-import-col-preliminary',c.preliminary);
- stxt('sys-import-col-summary',`Inspector ${c.inspector} · Technician ${c.technician} · Under Supervision ${c.underSupervision} · Preliminary ${c.preliminary}`);
+ const c=getProdImportRoleColumns();sv('sys-import-col-date',c.date);sv('sys-import-col-inspector',c.inspector);sv('sys-import-col-technician',c.technician);sv('sys-import-col-supervision',c.underSupervision);sv('sys-import-col-preliminary',c.preliminary);
+ stxt('sys-import-col-summary',`Date ${c.date} · Inspector ${c.inspector} · Technician ${c.technician} · Under Supervision ${c.underSupervision} · Preliminary ${c.preliminary}`);
 }
 async function saveProdImportRoleColumns(){
- const c={inspector:normalizeExcelColumnLetter(document.getElementById('sys-import-col-inspector')?.value),technician:normalizeExcelColumnLetter(document.getElementById('sys-import-col-technician')?.value),underSupervision:normalizeExcelColumnLetter(document.getElementById('sys-import-col-supervision')?.value),preliminary:normalizeExcelColumnLetter(document.getElementById('sys-import-col-preliminary')?.value)};
- if(Object.values(c).some(v=>!v)){toast('Enter a valid Excel column letter for every role','error');return;}
- if(new Set(Object.values(c)).size!==4){toast('Each role must use a different Excel column','error');return;}
+ const c={date:normalizeExcelColumnLetter(document.getElementById('sys-import-col-date')?.value),inspector:normalizeExcelColumnLetter(document.getElementById('sys-import-col-inspector')?.value),technician:normalizeExcelColumnLetter(document.getElementById('sys-import-col-technician')?.value),underSupervision:normalizeExcelColumnLetter(document.getElementById('sys-import-col-supervision')?.value),preliminary:normalizeExcelColumnLetter(document.getElementById('sys-import-col-preliminary')?.value)};
+ if(Object.values(c).some(v=>!v)){toast('Enter a valid Excel column letter for the date and every role','error');return;}
+ const roleColumns=[c.inspector,c.technician,c.underSupervision,c.preliminary];
+ if(new Set(roleColumns).size!==4){toast('Each role must use a different Excel column','error');return;}
  settings.productionImportRoleColumns=c;await persistSettings();loadProdImportRoleColumnInputs();toast('Production import role columns saved');
 }
 window.saveProdImportRoleColumns=saveProdImportRoleColumns;
@@ -12660,6 +12663,142 @@ function humanError(err){
 window.ProTrackHumanCommitError=humanError;
 const oldToast=window.toast;
 if(typeof oldToast==='function')window.toast=function(message,type){return oldToast(humanError(message).replace(/^Commit failed: Commit failed:\s*/,'Commit failed: '),type)};
+})();
+</script>
+
+
+<script id="requested-production-import-modifications">
+(function(){
+  // Use the administrator-configured Excel date column for every production import row.
+  if (typeof window.buildEntriesFromRow === 'function' || typeof buildEntriesFromRow === 'function') {
+    const originalBuildEntriesFromRow = window.buildEntriesFromRow || buildEntriesFromRow;
+    const configuredDateBuild = function(row,rowNo,rawRow){
+      const copy = Object.assign({}, row || {});
+      try {
+        const columns = getProdImportRoleColumns();
+        const dateValue = readRawExcelColumn(rawRow, columns.date);
+        copy['Date Completed'] = dateValue;
+        copy['Completion Date'] = dateValue;
+        copy.Date = dateValue;
+      } catch(e) {}
+      return originalBuildEntriesFromRow.call(this,copy,rowNo,rawRow);
+    };
+    window.buildEntriesFromRow = configuredDateBuild;
+    try { buildEntriesFromRow = configuredDateBuild; } catch(e) {}
+  }
+
+  // Remove the unwanted "commit/commite fail(ed)" prefix from every web notification.
+  if (typeof window.toast === 'function' || typeof toast === 'function') {
+    const originalToast = window.toast || toast;
+    const cleanNotificationPrefix = function(message){
+      return String(message == null ? '' : message)
+        .replace(/^\s*commite?\s+fail(?:ed)?\s*[:\-–—]?\s*/i,'')
+        .replace(/^\s*commit\s+failed\s*[:\-–—]?\s*/i,'');
+    };
+    const cleanedToast = function(message,type){
+      return originalToast.call(this,cleanNotificationPrefix(message),type);
+    };
+    window.toast = cleanedToast;
+    try { toast = cleanedToast; } catch(e) {}
+  }
+
+  function missingEmployeeRows(){
+    const preview = (window.productionImportState || productionImportState || {}).preview || [];
+    const output=[];
+    preview.forEach(function(item){
+      const rowKey=item.id || item.row;
+      const rowNo=item.sourceRow || item.row || '';
+      const role=(item.entry && (item.entry.jobRole || item.entry.role)) || item.role || '';
+      const candidates=[];
+      if(Array.isArray(item.employeeItems)) item.employeeItems.forEach(function(emp){
+        if(emp && emp.valid !== true && emp.isValid !== true) candidates.push(emp.rawId || emp.id || emp.techId || emp.name);
+      });
+      if(Array.isArray(item.missingEmployeeIds)) candidates.push.apply(candidates,item.missingEmployeeIds);
+      if(item.missingEmployeeId) candidates.push(item.missingEmployeeId);
+      const issueText=String([item.reason,item.validationReason,item.status,item.validationStatus].filter(Boolean).join(' ')).toLowerCase();
+      if(!candidates.length && /missing employee|no valid employee|unresolved id|employee.*not found/.test(issueText)){
+        const raw=item.rawEmployeeIds || item.rawEmployeeId || (item.entry && (item.entry.rawEmployeeIds || item.entry.rawEmployeeId || item.entry.techId)) || '';
+        String(raw).split(/[,;\/|\n\r]+/).forEach(function(v){if(v.trim())candidates.push(v.trim());});
+      }
+      [...new Set(candidates.map(function(v){return String(v||'').trim();}).filter(Boolean))].forEach(function(id){
+        output.push({id:id,rowKey:rowKey,rowNo:rowNo,role:role});
+      });
+    });
+    return output;
+  }
+  function htmlSafe(value){return String(value||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function jsSafe(value){return String(value||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+  window.openAddMissingEmployeeFromImport = function(rowKey,employeeId){
+    openAddTechForImport(rowKey);
+    setTimeout(function(){
+      const idInput=document.getElementById('mt-id');
+      if(idInput){idInput.value=employeeId;idInput.dispatchEvent(new Event('input',{bubbles:true}));}
+    },0);
+  };
+  const PROD_IMPORT_IGNORED_EMPLOYEE_KEY='protrack-production-import-ignored-employees-v1';
+  function normalizedEmployeeId(value){return String(value||'').trim().toUpperCase();}
+  function getPersistentlyIgnoredEmployeeIds(){
+    try{return new Set((JSON.parse(localStorage.getItem(PROD_IMPORT_IGNORED_EMPLOYEE_KEY)||'[]')||[]).map(normalizedEmployeeId).filter(Boolean));}
+    catch(e){return new Set();}
+  }
+  function savePersistentlyIgnoredEmployeeIds(ids){
+    localStorage.setItem(PROD_IMPORT_IGNORED_EMPLOYEE_KEY,JSON.stringify([...ids]));
+  }
+  function itemEmployeeIds(item){
+    const ids=[];
+    if(Array.isArray(item?.employeeItems))item.employeeItems.forEach(e=>ids.push(e?.rawId||e?.id||e?.techId));
+    if(Array.isArray(item?.missingEmployeeIds))ids.push(...item.missingEmployeeIds);
+    if(item?.missingEmployeeId)ids.push(item.missingEmployeeId);
+    const raw=item?.rawEmployeeIds||item?.rawEmployeeId||item?.entry?.rawEmployeeIds||item?.entry?.rawEmployeeId||'';
+    String(raw).split(/[,;\/|\n\r]+/).forEach(v=>ids.push(v));
+    return [...new Set(ids.map(normalizedEmployeeId).filter(Boolean))];
+  }
+  function applyPersistentEmployeeIgnores(){
+    const state=window.productionImportState||(typeof productionImportState!=='undefined'?productionImportState:null);
+    if(!state||!Array.isArray(state.preview))return;
+    const ignored=getPersistentlyIgnoredEmployeeIds();
+    if(!ignored.size)return;
+    state.ignoredMissingEmployeeIds=[...new Set([...(state.ignoredMissingEmployeeIds||[]).map(normalizedEmployeeId),...ignored])];
+    state.preview=state.preview.filter(item=>{
+      const ids=itemEmployeeIds(item);
+      if(!ids.length)return true;
+      const ignoredHere=ids.filter(id=>ignored.has(id));
+      if(!ignoredHere.length)return true;
+      if(Array.isArray(item.employeeItems))item.employeeItems=item.employeeItems.filter(e=>!ignored.has(normalizedEmployeeId(e?.rawId||e?.id||e?.techId)));
+      if(Array.isArray(item.selectedEmployeeIds))item.selectedEmployeeIds=item.selectedEmployeeIds.filter(e=>!ignored.has(normalizedEmployeeId(e?.rawId||e?.id||e?.techId)));
+      // Remove only the preview entry that belongs entirely to ignored IDs. Other role/employee entries remain.
+      return ids.some(id=>!ignored.has(id));
+    });
+    try{saveProductionImportState();}catch(e){}
+  }
+  window.ignoreProductionImportEmployeeId=function(employeeId){
+    const id=normalizedEmployeeId(employeeId);if(!id)return;
+    const ignored=getPersistentlyIgnoredEmployeeIds();ignored.add(id);savePersistentlyIgnoredEmployeeIds(ignored);
+    applyPersistentEmployeeIgnores();
+    try{validateProductionImportPreview();}catch(e){}
+    try{renderImportProduction();}catch(e){}
+    if(typeof toast==='function')toast('Employee ID '+id+' ignored. Other employees and task data are kept.','info');
+  };
+  applyPersistentEmployeeIgnores();
+
+  window.renderMissingProductionEmployees = function(){
+    const cardTitle=[...document.querySelectorAll('.ct')].find(function(e){return e.textContent.trim()==='Import Preview / Actions';});
+    const body=cardTitle && cardTitle.closest('.card') && cardTitle.closest('.card').querySelector('.cb');
+    if(!body)return;
+    let box=document.getElementById('prod-import-missing-employees');
+    if(!box){box=document.createElement('div');box.id='prod-import-missing-employees';body.insertBefore(box,body.firstChild);}
+    const rows=missingEmployeeRows();
+    if(!rows.length){box.innerHTML='';box.style.display='none';return;}
+    box.style.display='block';box.className='al al-a';box.style.marginTop='12px';box.style.flexDirection='column';
+    box.innerHTML='<div style="font-weight:800">Employee IDs not found ('+rows.length+')</div>'+
+      '<div style="width:100%;display:grid;gap:7px">'+rows.map(function(x){return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 10px;background:var(--card);border:1px solid var(--bdr);border-radius:8px"><span><b class="mono">'+htmlSafe(x.id)+'</b>'+ (x.role?' · '+htmlSafe(x.role):'')+(x.rowNo?' · Row '+htmlSafe(x.rowNo):'')+'</span><span style="display:flex;gap:7px;flex-wrap:wrap"><button class="btn bp bsm" onclick="openAddMissingEmployeeFromImport(\''+jsSafe(x.rowKey)+'\',\''+jsSafe(x.id)+'\')">Add Employee</button><button class="btn bo bsm" onclick="ignoreProductionImportEmployeeId(\''+jsSafe(x.id)+'\')">Ignore Employee ID</button></span></div>';}).join('')+'</div>';
+  };
+  if(typeof window.renderImportProduction === 'function' || typeof renderImportProduction === 'function'){
+    const originalRender=window.renderImportProduction || renderImportProduction;
+    const enhancedRender=function(){applyPersistentEmployeeIgnores();const result=originalRender.apply(this,arguments);window.renderMissingProductionEmployees();return result;};
+    window.renderImportProduction=enhancedRender;
+    try { renderImportProduction=enhancedRender; } catch(e) {}
+  }
 })();
 </script>
 
