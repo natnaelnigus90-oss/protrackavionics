@@ -4762,18 +4762,29 @@ function findPartByNumber(value) {
  const raw = cleanImportField(value);
  if (!raw) return null;
  const lower = raw.toLowerCase();
- const validHours = p => {
- const hours = Number(p?.hours);
- return Number.isFinite(hours) && hours > 0 && hours < 9999;
+ const normalizePartNumber = v => String(v || '').toLowerCase().replace(/\s+/g, '').trim();
+ const wanted = normalizePartNumber(raw);
+ const fieldContainsPartNumber = field => {
+ const full = normalizePartNumber(field);
+ if (!full) return false;
+ if (full === wanted) return true;
+ const first = full.split(/[,;|/]+/)[0];
+ if (first === wanted) return true;
+ return full.split(/[,;|/]+/).some(token => {
+ if (token === wanted) return true;
+ if (/^-/.test(token) && first.includes('-')) {
+ const base = first.slice(0, first.lastIndexOf('-'));
+ return base + token === wanted;
+ }
+ return false;
+ });
  };
- const choose = matches => matches.find(validHours) || matches[0] || null;
- const exactPartNumber = parts.filter(p => (p.num || '').toLowerCase() === lower);
- if (exactPartNumber.length) return choose(exactPartNumber);
- const exactOem = parts.filter(p => (p.oem || '').toLowerCase() === lower);
- if (exactOem.length) return choose(exactOem);
- const exactAlternate = parts.filter(p => (p.altNum || '').toLowerCase() === lower);
- if (exactAlternate.length) return choose(exactAlternate);
- return choose(parts.filter(p => (p.name || '').toLowerCase() === lower));
+ const exactMatches = parts.filter(p => fieldContainsPartNumber(p.num) || fieldContainsPartNumber(p.oem) || fieldContainsPartNumber(p.altNum));
+ if (exactMatches.length) {
+ const valid = exactMatches.find(p => Number.isFinite(Number(p.hours)) && Number(p.hours) > 0 && Number(p.hours) < 9999);
+ return valid || exactMatches[0];
+ }
+ return parts.find(p => (p.name || '').toLowerCase() === lower) || null;
 }
 function parseEmployeeIds(rawValue) {
  const raw = cleanImportField(rawValue);
