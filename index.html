@@ -12735,52 +12735,6 @@ if(typeof oldToast==='function')window.toast=function(message,type){return oldTo
       if(idInput){idInput.value=employeeId;idInput.dispatchEvent(new Event('input',{bubbles:true}));}
     },0);
   };
-  const PROD_IMPORT_IGNORED_EMPLOYEE_KEY='protrack-production-import-ignored-employees-v1';
-  function normalizedEmployeeId(value){return String(value||'').trim().toUpperCase();}
-  function getPersistentlyIgnoredEmployeeIds(){
-    try{return new Set((JSON.parse(localStorage.getItem(PROD_IMPORT_IGNORED_EMPLOYEE_KEY)||'[]')||[]).map(normalizedEmployeeId).filter(Boolean));}
-    catch(e){return new Set();}
-  }
-  function savePersistentlyIgnoredEmployeeIds(ids){
-    localStorage.setItem(PROD_IMPORT_IGNORED_EMPLOYEE_KEY,JSON.stringify([...ids]));
-  }
-  function itemEmployeeIds(item){
-    const ids=[];
-    if(Array.isArray(item?.employeeItems))item.employeeItems.forEach(e=>ids.push(e?.rawId||e?.id||e?.techId));
-    if(Array.isArray(item?.missingEmployeeIds))ids.push(...item.missingEmployeeIds);
-    if(item?.missingEmployeeId)ids.push(item.missingEmployeeId);
-    const raw=item?.rawEmployeeIds||item?.rawEmployeeId||item?.entry?.rawEmployeeIds||item?.entry?.rawEmployeeId||'';
-    String(raw).split(/[,;\/|\n\r]+/).forEach(v=>ids.push(v));
-    return [...new Set(ids.map(normalizedEmployeeId).filter(Boolean))];
-  }
-  function applyPersistentEmployeeIgnores(){
-    const state=window.productionImportState||(typeof productionImportState!=='undefined'?productionImportState:null);
-    if(!state||!Array.isArray(state.preview))return;
-    const ignored=getPersistentlyIgnoredEmployeeIds();
-    if(!ignored.size)return;
-    state.ignoredMissingEmployeeIds=[...new Set([...(state.ignoredMissingEmployeeIds||[]).map(normalizedEmployeeId),...ignored])];
-    state.preview=state.preview.filter(item=>{
-      const ids=itemEmployeeIds(item);
-      if(!ids.length)return true;
-      const ignoredHere=ids.filter(id=>ignored.has(id));
-      if(!ignoredHere.length)return true;
-      if(Array.isArray(item.employeeItems))item.employeeItems=item.employeeItems.filter(e=>!ignored.has(normalizedEmployeeId(e?.rawId||e?.id||e?.techId)));
-      if(Array.isArray(item.selectedEmployeeIds))item.selectedEmployeeIds=item.selectedEmployeeIds.filter(e=>!ignored.has(normalizedEmployeeId(e?.rawId||e?.id||e?.techId)));
-      // Remove only the preview entry that belongs entirely to ignored IDs. Other role/employee entries remain.
-      return ids.some(id=>!ignored.has(id));
-    });
-    try{saveProductionImportState();}catch(e){}
-  }
-  window.ignoreProductionImportEmployeeId=function(employeeId){
-    const id=normalizedEmployeeId(employeeId);if(!id)return;
-    const ignored=getPersistentlyIgnoredEmployeeIds();ignored.add(id);savePersistentlyIgnoredEmployeeIds(ignored);
-    applyPersistentEmployeeIgnores();
-    try{validateProductionImportPreview();}catch(e){}
-    try{renderImportProduction();}catch(e){}
-    if(typeof toast==='function')toast('Employee ID '+id+' ignored. Other employees and task data are kept.','info');
-  };
-  applyPersistentEmployeeIgnores();
-
   window.renderMissingProductionEmployees = function(){
     const cardTitle=[...document.querySelectorAll('.ct')].find(function(e){return e.textContent.trim()==='Import Preview / Actions';});
     const body=cardTitle && cardTitle.closest('.card') && cardTitle.closest('.card').querySelector('.cb');
@@ -12791,11 +12745,11 @@ if(typeof oldToast==='function')window.toast=function(message,type){return oldTo
     if(!rows.length){box.innerHTML='';box.style.display='none';return;}
     box.style.display='block';box.className='al al-a';box.style.marginTop='12px';box.style.flexDirection='column';
     box.innerHTML='<div style="font-weight:800">Employee IDs not found ('+rows.length+')</div>'+
-      '<div style="width:100%;display:grid;gap:7px">'+rows.map(function(x){return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 10px;background:var(--card);border:1px solid var(--bdr);border-radius:8px"><span><b class="mono">'+htmlSafe(x.id)+'</b>'+ (x.role?' · '+htmlSafe(x.role):'')+(x.rowNo?' · Row '+htmlSafe(x.rowNo):'')+'</span><span style="display:flex;gap:7px;flex-wrap:wrap"><button class="btn bp bsm" onclick="openAddMissingEmployeeFromImport(\''+jsSafe(x.rowKey)+'\',\''+jsSafe(x.id)+'\')">Add Employee</button><button class="btn bo bsm" onclick="ignoreProductionImportEmployeeId(\''+jsSafe(x.id)+'\')">Ignore Employee ID</button></span></div>';}).join('')+'</div>';
+      '<div style="width:100%;display:grid;gap:7px">'+rows.map(function(x){return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 10px;background:var(--card);border:1px solid var(--bdr);border-radius:8px"><span><b class="mono">'+htmlSafe(x.id)+'</b>'+ (x.role?' · '+htmlSafe(x.role):'')+(x.rowNo?' · Row '+htmlSafe(x.rowNo):'')+'</span><button class="btn bp bsm" onclick="openAddMissingEmployeeFromImport(\''+jsSafe(x.rowKey)+'\',\''+jsSafe(x.id)+'\')">Add Employee</button></div>';}).join('')+'</div>';
   };
   if(typeof window.renderImportProduction === 'function' || typeof renderImportProduction === 'function'){
     const originalRender=window.renderImportProduction || renderImportProduction;
-    const enhancedRender=function(){applyPersistentEmployeeIgnores();const result=originalRender.apply(this,arguments);window.renderMissingProductionEmployees();return result;};
+    const enhancedRender=function(){const result=originalRender.apply(this,arguments);window.renderMissingProductionEmployees();return result;};
     window.renderImportProduction=enhancedRender;
     try { renderImportProduction=enhancedRender; } catch(e) {}
   }
