@@ -4762,7 +4762,18 @@ function findPartByNumber(value) {
  const raw = cleanImportField(value);
  if (!raw) return null;
  const lower = raw.toLowerCase();
- return parts.find(p => ((p.num || '').toLowerCase() === lower || (p.oem || '').toLowerCase() === lower || (p.altNum || '').toLowerCase() === lower)) || parts.find(p => ((p.name || '').toLowerCase() === lower));
+ const validHours = p => {
+ const hours = Number(p?.hours);
+ return Number.isFinite(hours) && hours > 0 && hours < 9999;
+ };
+ const choose = matches => matches.find(validHours) || matches[0] || null;
+ const exactPartNumber = parts.filter(p => (p.num || '').toLowerCase() === lower);
+ if (exactPartNumber.length) return choose(exactPartNumber);
+ const exactOem = parts.filter(p => (p.oem || '').toLowerCase() === lower);
+ if (exactOem.length) return choose(exactOem);
+ const exactAlternate = parts.filter(p => (p.altNum || '').toLowerCase() === lower);
+ if (exactAlternate.length) return choose(exactAlternate);
+ return choose(parts.filter(p => (p.name || '').toLowerCase() === lower));
 }
 function parseEmployeeIds(rawValue) {
  const raw = cleanImportField(rawValue);
