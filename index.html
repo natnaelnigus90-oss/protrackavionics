@@ -7,7 +7,7 @@
 <meta content="ET MRO production Tracking system" name="description"/>
 <meta content="#070c18" name="theme-color"/>
 <link href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2712%27 fill=%27%233b82f6%27/%3E%3Ctext x=%2732%27 y=%2739%27 font-size=%2722%27 text-anchor=%27middle%27 fill=%27white%27 font-family=%27Arial%27 font-weight=%27700%27%3EPT%3C/text%3E%3C/svg%3E" rel="icon" type="image/svg+xml"/>
-<title>ProTrack v3.0</title>
+<title>ProTrack v3.0 DATEFIX-R2</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
  // === Supabase bootstrap ===
@@ -2852,15 +2852,6 @@ function dlFile(c, fn, t) { const a = document.createElement('a'); a.href = URL.
 function fmtEAT(iso, mode = 'datetime') {
  if (!iso) return '—';
  try {
- const text = String(iso).trim();
- if (mode === 'date') {
- const m = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[ T])/);
- if (m) {
- const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
- const monthIndex = Number(m[2]) - 1;
- if (monthIndex >= 0 && monthIndex < 12) return `${m[3]} ${monthNames[monthIndex]} ${m[1]}`;
- }
- }
  const d = new Date(iso); if (isNaN(d)) return iso;
  if (mode === 'time') return d.toLocaleTimeString('en-GB', { timeZone: EAT_TZ, hour: '2-digit', minute: '2-digit' });
  if (mode === 'date') return d.toLocaleDateString('en-GB', { timeZone: EAT_TZ, day: '2-digit', month: 'short', year: 'numeric' });
@@ -5494,7 +5485,7 @@ async function previewProductionImport(input) {
  if (!window.XLSX) { toast('Import library not loaded', 'error'); return; }
  return runWithImportLoading('Preparing production preview...', async () => {
  try {
- const buf = await file.arrayBuffer(); const wb = window.XLSX.read(buf, { type: 'array', cellDates: true });
+ const buf = await file.arrayBuffer(); const wb = window.XLSX.read(buf, { type: 'array', cellDates: false });
  const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
  const rawRows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
  const preview = [];
@@ -7510,7 +7501,7 @@ async function previewProductionImport(input) {
  return runWithImportLoading('Preparing production preview...', async () => {
  try {
  const buf = await file.arrayBuffer();
- const wb = window.XLSX.read(buf, { type: 'array', cellDates: true });
+ const wb = window.XLSX.read(buf, { type: 'array', cellDates: false });
  const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
  const rawRows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
  const preview = [];
@@ -8199,7 +8190,7 @@ async function previewProductionImport(input) {
  return runWithImportLoading('Preparing production preview...', async () => {
  try {
  const buf = await file.arrayBuffer();
- const wb = window.XLSX.read(buf, { type: 'array', cellDates: true });
+ const wb = window.XLSX.read(buf, { type: 'array', cellDates: false });
  const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
  const rawRows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
  const preview = [];
@@ -10011,7 +10002,7 @@ window.openAddPartForImport=openAddPartForImport;
 async function previewProductionImport(input){
  const file=input?.files?.[0];if(!file)return;if(!window.XLSX){toast('Import library not loaded','error');return;}
  return runWithImportLoading('Preparing production preview...',async()=>{try{
- const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}),ws=wb.Sheets[wb.SheetNames[0]],matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
+ const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false}),ws=wb.Sheets[wb.SheetNames[0]],matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
  if(!matrix.length)throw new Error('The worksheet is empty.');
  const headers=matrix[0].map((h,i)=>String(h||'').trim()||`Column ${i+1}`),preview=[],skipped=[];let sourceCount=0;
  for(let r=1;r<matrix.length;r++){
@@ -10076,7 +10067,7 @@ function prodImportRawEmployeeValue(row){
 async function previewProductionImport(input){
  const file=input?.files?.[0];if(!file)return;if(!window.XLSX){toast('Import library not loaded','error');return;}
  return runWithImportLoading('Preparing production preview...',async()=>{try{
- const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}),ws=wb.Sheets[wb.SheetNames[0]],matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
+ const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false}),ws=wb.Sheets[wb.SheetNames[0]],matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
  if(!matrix.length)throw new Error('The worksheet is empty.');
  const headers=matrix[0].map((h,i)=>String(h||'').trim()||`Column ${i+1}`),preview=[],skipped=[];
  for(let r=1;r<matrix.length;r++){
@@ -10272,7 +10263,7 @@ function buildConfiguredRoleImportItems(row,rowNo,rawRow){
 async function previewProductionImport(input){
  const file=input?.files?.[0];if(!file)return;if(!window.XLSX){toast('Import library not loaded','error');return;}
  return runWithImportLoading('Preparing role-based production preview...',async()=>{try{
- const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true}),ws=wb.Sheets[wb.SheetNames[0]],matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
+ const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false}),ws=wb.Sheets[wb.SheetNames[0]],matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
  if(!matrix.length)throw new Error('The worksheet is empty.');
  const headers=matrix[0].map((h,i)=>String(h||'').trim()||`Column ${i+1}`),preview=[],skipped=[],columns=getProdImportRoleColumns();
  for(let r=1;r<matrix.length;r++){
@@ -10364,7 +10355,7 @@ function buildConfiguredRoleImportItems(row,rowNo,rawRow){
 async function previewProductionImport(input){
  const file=input?.files?.[0];if(!file)return;if(!window.XLSX){toast('Import library not loaded','error');return;}
  return runWithImportLoading('Preparing role-based production preview...',async()=>{try{
- const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
+ const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});
  const ws=wb.Sheets[wb.SheetNames[0]];
  const matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
  if(!matrix.length)throw new Error('The worksheet is empty.');
@@ -10746,7 +10737,7 @@ async function previewProductionImport(input){
  try{
  await importV2LoadBackendKnowledge();
  if(!importV2BackendAvailable)throw new Error('Import v2 backend tables are missing. Run protrack_import_v2_migration.sql in Supabase first.');
- const buffer=await file.arrayBuffer(), hash=await importV2Hash(buffer), wb=XLSX.read(buffer,{type:'array',cellDates:true}), ws=wb.Sheets[wb.SheetNames[0]];
+ const buffer=await file.arrayBuffer(), hash=await importV2Hash(buffer), wb=XLSX.read(buffer,{type:'array',cellDates:false}), ws=wb.Sheets[wb.SheetNames[0]];
  const matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'yyyy-mm-dd',blankrows:true});
  if(!matrix.length)throw new Error('The worksheet is empty');
  importV2BatchId=importV2NewBatchId();
