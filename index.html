@@ -6585,16 +6585,36 @@ window.toggleVer = toggleVer;
 // ════════════════════════════════════════════════
 
 async function loadAllData() {
- const [ts, ls, cs, ms, ps, es, as_, ds, sps] = await Promise.all([
- DB.list('technicians'), DB.list('leaders'), DB.list('controllers'), DB.list('managers'),
- DB.list('parts'), DB.list('entries'), DB.list('assignments'), DB.list('departments'), DB.list('shop_performance')
- ]);
- techs = ts; leaders = ls; controllers = cs; managers = ms; parts = ps; entries = es; assignments = as_; shopPerf = sps;
- departments = ds.length ? ds : DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
- if (!ds.length) { for (const d of departments) await DB.upsert('departments', d); }
- const savedSettings = await DB.getSettings();
- if (savedSettings) settings = savedSettings;
- else { settings.permissions = defaultPermissionsV2(); await persistSettings(); }
+ if (!sb) initSupabase();
+ if (!sb) throw new Error('Supabase client is not available. Check that the Supabase library is loading.');
+ const names = ['technicians','leaders','controllers','managers','parts','entries','assignments','departments','shop_performance'];
+ const results = await Promise.allSettled(names.map(table => DB.list(table)));
+ const loaded = {}, failures = [];
+ results.forEach((result, index) => {
+  const table = names[index];
+  if (result.status === 'fulfilled') loaded[table] = result.value || [];
+  else { loaded[table] = []; failures.push({ table, error: result.reason }); console.warn('Database table load failed:', table, result.reason); }
+ });
+ const successfulCount = results.filter(r => r.status === 'fulfilled').length;
+ if (!successfulCount) {
+  const first = failures[0]?.error;
+  throw new Error(first?.message || 'No database table could be loaded.');
+ }
+ techs = loaded.technicians; leaders = loaded.leaders; controllers = loaded.controllers; managers = loaded.managers;
+ parts = loaded.parts; entries = loaded.entries; assignments = loaded.assignments; shopPerf = loaded.shop_performance;
+ departments = loaded.departments.length ? loaded.departments : DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
+ // Do not block login if one optional table is missing or restricted. Creating defaults can be done after login.
+ try {
+  const savedSettings = await DB.getSettings();
+  if (savedSettings) settings = savedSettings;
+  else if (!settings.permissions) settings.permissions = defaultPermissionsV2();
+ } catch (settingsError) {
+  console.warn('Settings load failed; using safe defaults:', settingsError);
+  if (!settings.permissions) settings.permissions = defaultPermissionsV2();
+ }
+ if (failures.length) {
+  window.__PROTRACK_LOAD_WARNINGS = failures.map(x => x.table);
+ } else window.__PROTRACK_LOAD_WARNINGS = [];
 }
 
 async function doLogin() {
@@ -6602,7 +6622,8 @@ async function doLogin() {
  document.getElementById('login-attempts').style.display = 'block';
  document.getElementById('login-attempts').textContent = 'Too many attempts. Please wait 30 seconds and try again.';
  toast('Too many login attempts. Please wait 30 seconds and try again.', 'error');
- setTimeout(() => { loginAttempts = 0; document.getElementById('login-attempts').style.display = 'none'; }, 30000);
+ setTimeout(() => { loginAttempts = 0; document.getElementById('login-attempts').style.display = 'none';
+ if (window.__PROTRACK_LOAD_WARNINGS?.length) setTimeout(() => toast('Connected. Some optional data sections could not load: ' + window.__PROTRACK_LOAD_WARNINGS.join(', '), 'warn'), 700); }, 30000);
  return;
  }
  const id = sanitize(document.getElementById('li-id')?.value).toUpperCase();
@@ -6612,7 +6633,22 @@ async function doLogin() {
  if (btn) { btn.classList.add('loading'); btn.disabled = true; }
  if (lbtxt) lbtxt.textContent = 'Signing in…';
  showLoading('Loading ProTrack…');
- try { await loadAllData(); } catch (e) { console.warn('Load failed:', e); hideLoading(); if (btn) { btn.classList.remove('loading'); btn.disabled = false; } toast('Could not reach the database. Check your connection.', 'error'); return; }
+ try {
+  await loadAllData();
+ } catch (e) {
+  console.warn('Initial database load failed:', e);
+  // Recreate the client once and retry. This fixes stale or incomplete client initialization.
+  try { sb = null; initSupabase(); await new Promise(resolve => setTimeout(resolve, 700)); await loadAllData(); }
+  catch (retryError) {
+   console.error('Database retry failed:', retryError);
+   hideLoading();
+   if (btn) { btn.classList.remove('loading'); btn.disabled = false; }
+   if (lbtxt) lbtxt.textContent = 'Sign In';
+   const detail = retryError?.message || e?.message || 'Unknown database error';
+   toast('Database connection failed: ' + detail, 'error');
+   return;
+  }
+ }
  syncAllDeptDropdowns();
  let user = null, role = '';
  user = techs.find(t => t.id === id && t.password === pwd); if (user) role = 'tech';
