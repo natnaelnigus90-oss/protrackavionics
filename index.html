@@ -8008,6 +8008,13 @@ async function commitProductionImport() {
  }
  }
  const summary = `Imported ${created} entries${skipped ? `, skipped ${skipped}` : ''}`;
+ if (created > 0) {
+  settings.lastProductionImportAt = new Date().toISOString();
+  settings.lastProductionImportEntryCount = created;
+  settings.lastProductionImportFileName = productionImportState.fileName || '';
+  try { await persistSettings(); } catch (metaError) { console.warn('Last production import date save failed:', metaError); }
+  if (typeof window.renderLastProductionImportNotices === 'function') window.renderLastProductionImportNotices();
+ }
  renderProdImportReport({ created, skipped, skippedList });
  if (canManageEntriesUI()) renderAllEntries();
  clearProductionImportPreview();
@@ -12924,6 +12931,67 @@ function renderDrawer(){ensureDrawer();const page=drawerPage||activePage(),btn=d
 function historic(){if(settings.actionHistoryBaselineV4)return;Object.entries(ARR).forEach(([table,f])=>(f()||[]).forEach(r=>logs().push({id:newId('act_'),timestamp:r.updated_at||r.created_at||new Date().toISOString(),actorId:'unknown',actorName:'Historical user unavailable',actorRole:'unknown',table,relatedPages:RELATED[table]||[],action:'existing',entityId:String(r.id||''),entityLabel:subject(table,r).label,before:null,after:clone(r),detail:'This record existed before detailed action tracking. The original user, time, and field changes were not recorded.'})));settings.actionHistoryBaselineV4=true;persistMeta()}
 const ob=new MutationObserver(()=>{clearTimeout(ob.t);ob.t=setTimeout(renderDrawer,80)});ob.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
 setTimeout(()=>{addEffectiveControls();seedSnapshots();historic();ensureDrawer();renderDrawer()},1300);
+})();
+</script>
+
+
+<style id="last-production-import-notice-style">
+.last-production-import-notice{display:flex;align-items:center;gap:9px;padding:9px 12px;margin:0 0 12px;border:1px solid rgba(59,130,246,.24);border-radius:10px;background:linear-gradient(135deg,var(--bdim),var(--card));color:var(--tx2);font-size:12px;line-height:1.45;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.last-production-import-notice .lpi-icon{display:flex;align-items:center;justify-content:center;width:27px;height:27px;flex:0 0 27px;border-radius:8px;background:var(--blue);color:#fff;font-size:13px}
+.last-production-import-notice .lpi-text{min-width:0}.last-production-import-notice .lpi-text b{color:var(--tx);font-weight:800}.last-production-import-notice .lpi-meta{display:block;margin-top:1px;color:var(--tx3);font-size:10.5px}
+.last-production-import-notice.lpi-empty{border-color:var(--bdr);background:var(--card2)}
+@media(max-width:600px){.last-production-import-notice{align-items:flex-start;font-size:11.5px}}
+</style>
+<script id="last-production-import-notice-script">
+(function(){
+ 'use strict';
+ const TARGET_PAGES=['mystats','allentries','importproduction','dashboard','taskgroups'];
+ function formatImportDateGMT(value){
+  if(!value)return '';
+  const d=new Date(value);if(Number.isNaN(d.getTime()))return '';
+  const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const day=String(d.getUTCDate()).padStart(2,'0');
+  const month=months[d.getUTCMonth()];
+  const year=d.getUTCFullYear();
+  const hour=String(d.getUTCHours()).padStart(2,'0');
+  const minute=String(d.getUTCMinutes()).padStart(2,'0');
+  return day+'-'+month+'-'+year+' '+hour+':'+minute+' GMT';
+ }
+ function noticeHtml(){
+  const formatted=formatImportDateGMT(settings?.lastProductionImportAt);
+  if(!formatted){
+   return '<div class="last-production-import-notice lpi-empty" data-last-production-import-notice="1"><span class="lpi-icon">↻</span><div class="lpi-text"><b>No production import date recorded yet.</b><span class="lpi-meta">The date will appear after entries are successfully imported from the Import Production page.</span></div></div>';
+  }
+  const count=Number(settings?.lastProductionImportEntryCount)||0;
+  const file=String(settings?.lastProductionImportFileName||'').trim();
+  const meta=[count?count+' '+(count===1?'entry':'entries')+' imported':'',file?'File: '+file:''].filter(Boolean).join(' · ');
+  return '<div class="last-production-import-notice" data-last-production-import-notice="1"><span class="lpi-icon">↻</span><div class="lpi-text"><b>This data is based on the imported data of '+escapeHtml(formatted)+'.</b>'+(meta?'<span class="lpi-meta">'+escapeHtml(meta)+'</span>':'')+'</div></div>';
+ }
+ function renderLastProductionImportNotices(){
+  TARGET_PAGES.forEach(pageKey=>{
+   const page=document.getElementById('pg-'+pageKey);if(!page)return;
+   page.querySelectorAll('[data-last-production-import-notice="1"]').forEach(el=>el.remove());
+   const wrap=document.createElement('div');wrap.innerHTML=noticeHtml();const notice=wrap.firstElementChild;
+   const first=page.firstElementChild;page.insertBefore(notice,first||null);
+  });
+ }
+ window.formatLastProductionImportDateGMT=formatImportDateGMT;
+ window.renderLastProductionImportNotices=renderLastProductionImportNotices;
+ const originalLoadAllData=window.loadAllData||loadAllData;
+ if(typeof originalLoadAllData==='function'){
+  loadAllData=async function(){const result=await originalLoadAllData.apply(this,arguments);renderLastProductionImportNotices();return result;};
+  window.loadAllData=loadAllData;
+ }
+ const renderNames=['renderMyStats','renderDashboard','renderAllEntries','renderImportProduction','renderTaskGroups'];
+ renderNames.forEach(name=>{
+  const original=window[name];if(typeof original!=='function')return;
+  const enhanced=function(){const result=original.apply(this,arguments);setTimeout(renderLastProductionImportNotices,0);return result;};
+  window[name]=enhanced;
+  try{if(name==='renderMyStats')renderMyStats=enhanced;else if(name==='renderDashboard')renderDashboard=enhanced;else if(name==='renderAllEntries')renderAllEntries=enhanced;else if(name==='renderImportProduction')renderImportProduction=enhanced;else if(name==='renderTaskGroups')renderTaskGroups=enhanced;}catch(e){}
+ });
+ const observer=new MutationObserver(()=>{clearTimeout(observer._t);observer._t=setTimeout(renderLastProductionImportNotices,80)});
+ observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
+ setTimeout(renderLastProductionImportNotices,900);
 })();
 </script>
 
