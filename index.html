@@ -6585,16 +6585,36 @@ window.toggleVer = toggleVer;
 // ════════════════════════════════════════════════
 
 async function loadAllData() {
- const [ts, ls, cs, ms, ps, es, as_, ds, sps] = await Promise.all([
- DB.list('technicians'), DB.list('leaders'), DB.list('controllers'), DB.list('managers'),
- DB.list('parts'), DB.list('entries'), DB.list('assignments'), DB.list('departments'), DB.list('shop_performance')
- ]);
- techs = ts; leaders = ls; controllers = cs; managers = ms; parts = ps; entries = es; assignments = as_; shopPerf = sps;
- departments = ds.length ? ds : DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
- if (!ds.length) { for (const d of departments) await DB.upsert('departments', d); }
- const savedSettings = await DB.getSettings();
- if (savedSettings) settings = savedSettings;
- else { settings.permissions = defaultPermissionsV2(); await persistSettings(); }
+ if (!sb) initSupabase();
+ if (!sb) throw new Error('Supabase client is not available. Check that the Supabase library is loading.');
+ const names = ['technicians','leaders','controllers','managers','parts','entries','assignments','departments','shop_performance'];
+ const results = await Promise.allSettled(names.map(table => DB.list(table)));
+ const loaded = {}, failures = [];
+ results.forEach((result, index) => {
+  const table = names[index];
+  if (result.status === 'fulfilled') loaded[table] = result.value || [];
+  else { loaded[table] = []; failures.push({ table, error: result.reason }); console.warn('Database table load failed:', table, result.reason); }
+ });
+ const successfulCount = results.filter(r => r.status === 'fulfilled').length;
+ if (!successfulCount) {
+  const first = failures[0]?.error;
+  throw new Error(first?.message || 'No database table could be loaded.');
+ }
+ techs = loaded.technicians; leaders = loaded.leaders; controllers = loaded.controllers; managers = loaded.managers;
+ parts = loaded.parts; entries = loaded.entries; assignments = loaded.assignments; shopPerf = loaded.shop_performance;
+ departments = loaded.departments.length ? loaded.departments : DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
+ // Do not block login if one optional table is missing or restricted. Creating defaults can be done after login.
+ try {
+  const savedSettings = await DB.getSettings();
+  if (savedSettings) settings = savedSettings;
+  else if (!settings.permissions) settings.permissions = defaultPermissionsV2();
+ } catch (settingsError) {
+  console.warn('Settings load failed; using safe defaults:', settingsError);
+  if (!settings.permissions) settings.permissions = defaultPermissionsV2();
+ }
+ if (failures.length) {
+  window.__PROTRACK_LOAD_WARNINGS = failures.map(x => x.table);
+ } else window.__PROTRACK_LOAD_WARNINGS = [];
 }
 
 async function doLogin() {
@@ -6602,7 +6622,8 @@ async function doLogin() {
  document.getElementById('login-attempts').style.display = 'block';
  document.getElementById('login-attempts').textContent = 'Too many attempts. Please wait 30 seconds and try again.';
  toast('Too many login attempts. Please wait 30 seconds and try again.', 'error');
- setTimeout(() => { loginAttempts = 0; document.getElementById('login-attempts').style.display = 'none'; }, 30000);
+ setTimeout(() => { loginAttempts = 0; document.getElementById('login-attempts').style.display = 'none';
+ if (window.__PROTRACK_LOAD_WARNINGS?.length) setTimeout(() => toast('Connected. Some optional data sections could not load: ' + window.__PROTRACK_LOAD_WARNINGS.join(', '), 'warn'), 700); }, 30000);
  return;
  }
  const id = sanitize(document.getElementById('li-id')?.value).toUpperCase();
@@ -6612,7 +6633,22 @@ async function doLogin() {
  if (btn) { btn.classList.add('loading'); btn.disabled = true; }
  if (lbtxt) lbtxt.textContent = 'Signing in…';
  showLoading('Loading ProTrack…');
- try { await loadAllData(); } catch (e) { console.warn('Load failed:', e); hideLoading(); if (btn) { btn.classList.remove('loading'); btn.disabled = false; } toast('Could not reach the database. Check your connection.', 'error'); return; }
+ try {
+  await loadAllData();
+ } catch (e) {
+  console.warn('Initial database load failed:', e);
+  // Recreate the client once and retry. This fixes stale or incomplete client initialization.
+  try { sb = null; initSupabase(); await new Promise(resolve => setTimeout(resolve, 700)); await loadAllData(); }
+  catch (retryError) {
+   console.error('Database retry failed:', retryError);
+   hideLoading();
+   if (btn) { btn.classList.remove('loading'); btn.disabled = false; }
+   if (lbtxt) lbtxt.textContent = 'Sign In';
+   const detail = retryError?.message || e?.message || 'Unknown database error';
+   toast('Database connection failed: ' + detail, 'error');
+   return;
+  }
+ }
  syncAllDeptDropdowns();
  let user = null, role = '';
  user = techs.find(t => t.id === id && t.password === pwd); if (user) role = 'tech';
@@ -7972,6 +8008,13 @@ async function commitProductionImport() {
  }
  }
  const summary = `Imported ${created} entries${skipped ? `, skipped ${skipped}` : ''}`;
+ if (created > 0) {
+  settings.lastProductionImportAt = new Date().toISOString();
+  settings.lastProductionImportEntryCount = created;
+  settings.lastProductionImportFileName = productionImportState.fileName || '';
+  try { await persistSettings(); } catch (metaError) { console.warn('Last production import date save failed:', metaError); }
+  if (typeof window.renderLastProductionImportNotices === 'function') window.renderLastProductionImportNotices();
+ }
  renderProdImportReport({ created, skipped, skippedList });
  if (canManageEntriesUI()) renderAllEntries();
  clearProductionImportPreview();
@@ -10798,7 +10841,6 @@ async function commitProductionImport(){
  productionImportState.preview=preview.filter(x=>!successful.has(String(x.id)));
  await importV2PersistPreview(); renderImportProduction();refreshProductionImportSummary(productionImportState.preview);
  if(canManageEntriesUI())renderAllEntries();
- if(created>0) await recordProductionImportCompletion({created,duplicates,failed,batchId:importV2BatchId,fileName:productionImportState.fileName||''});
  toast(`Import finished: ${created} new entries imported, ${duplicates} duplicates blocked, ${failed} failed.` ,failed?'warn':'success');
  });
 }
@@ -12839,40 +12881,6 @@ if(typeof oldToast==='function')window.toast=function(message,type){return oldTo
 .pt-hd-row{padding:12px;border:1px solid var(--bdr);border-radius:10px;margin-bottom:8px;background:var(--card2)}.pt-hd-top{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--tx2)}.pt-hd-action{font-weight:800;color:var(--tx);text-transform:capitalize}.pt-hd-detail{font-size:12px;line-height:1.5;margin-top:7px}.pt-hd-empty{padding:40px 15px;text-align:center;color:var(--tx3)}
 .pt-effective-row{display:flex;align-items:end;gap:10px;flex-wrap:wrap;padding:10px 14px;background:var(--bdim);border:1px solid rgba(59,130,246,.2);border-radius:9px;margin:10px 0}.pt-effective-row .fgroup{min-width:190px}.pt-effective-note{font-size:11px;color:var(--tx2);max-width:450px;line-height:1.45;padding-bottom:8px}
 </style>
-
-<style id="pt-import-completion-style">
-.pt-import-completion{margin-top:12px;padding:12px 14px;border:1px solid rgba(16,185,129,.28);border-radius:10px;background:var(--gdim);display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.pt-import-completion-title{font-size:12px;font-weight:800;color:var(--green)}.pt-import-completion-time{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--tx);margin-top:4px}.pt-import-completion-meta{font-size:11px;color:var(--tx2);margin-top:4px}
-</style>
-<script id="pt-import-completion-script">
-(function(){'use strict';
- function eatDisplay(iso){try{return new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Addis_Ababa',year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(new Date(iso))+' EAT'}catch(e){return String(iso||'')}}
- function completionList(){if(!Array.isArray(settings.importProductionCompletions))settings.importProductionCompletions=[];return settings.importProductionCompletions}
- function renderCompletion(){
-  const host=document.getElementById('prod-import-summary');if(!host)return;
-  let box=document.getElementById('prod-import-last-completion');
-  if(!box){box=document.createElement('div');box.id='prod-import-last-completion';box.className='pt-import-completion';host.insertAdjacentElement('afterend',box)}
-  const last=completionList().slice().sort((a,b)=>String(b.completedAt).localeCompare(String(a.completedAt)))[0];
-  if(!last){box.style.display='none';return}box.style.display='flex';
-  box.innerHTML='<div><div class="pt-import-completion-title">✓ Last successful import completed</div><div class="pt-import-completion-time">'+escapeHtml(eatDisplay(last.completedAt))+'</div><div class="pt-import-completion-meta">'+escapeHtml(String(last.created))+' entr'+(Number(last.created)===1?'y':'ies')+' created'+(last.fileName?' · '+escapeHtml(last.fileName):'')+'</div></div><span class="bdg bgr">Completed</span>';
- }
- window.recordProductionImportCompletion=async function(info){
-  const now=new Date().toISOString(),actorId=String(CU?.id||''),actorName=String(CU?.name||CU?.id||'Unknown user');
-  const rec={id:newId('impdone_'),completedAt:now,created:Number(info?.created)||0,duplicates:Number(info?.duplicates)||0,failed:Number(info?.failed)||0,batchId:String(info?.batchId||''),fileName:String(info?.fileName||''),actorId,actorName};
-  if(rec.created<1)return null;
-  completionList().push(rec);if(settings.importProductionCompletions.length>200)settings.importProductionCompletions=settings.importProductionCompletions.slice(-200);
-  try{await DB.saveSettings(settings)}catch(e){console.warn('Import completion timestamp save failed:',e)}
-  if(typeof window.recordActionHistory==='function')window.recordActionHistory('entries','create',null,{id:rec.batchId||rec.id,name:'Import Production',created:rec.created},'Import Production successfully created '+rec.created+' entr'+(rec.created===1?'y':'ies')+' and completed at '+eatDisplay(rec.completedAt)+'.');
-  renderCompletion();return rec;
- };
- window.renderProductionImportCompletion=renderCompletion;
- const oldRender=window.renderImportProduction;
- if(typeof oldRender==='function')window.renderImportProduction=function(){const r=oldRender.apply(this,arguments);setTimeout(renderCompletion,0);return r};
- const observer=new MutationObserver(()=>{if(document.getElementById('pg-importproduction')?.classList.contains('on'))renderCompletion()});observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
- setTimeout(renderCompletion,1400);
-})();
-</script>
-
 <script id="pt-v4-script">
 (function(){'use strict';
 const MAX_LOGS=5000;
@@ -12923,6 +12931,125 @@ function renderDrawer(){ensureDrawer();const page=drawerPage||activePage(),btn=d
 function historic(){if(settings.actionHistoryBaselineV4)return;Object.entries(ARR).forEach(([table,f])=>(f()||[]).forEach(r=>logs().push({id:newId('act_'),timestamp:r.updated_at||r.created_at||new Date().toISOString(),actorId:'unknown',actorName:'Historical user unavailable',actorRole:'unknown',table,relatedPages:RELATED[table]||[],action:'existing',entityId:String(r.id||''),entityLabel:subject(table,r).label,before:null,after:clone(r),detail:'This record existed before detailed action tracking. The original user, time, and field changes were not recorded.'})));settings.actionHistoryBaselineV4=true;persistMeta()}
 const ob=new MutationObserver(()=>{clearTimeout(ob.t);ob.t=setTimeout(renderDrawer,80)});ob.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
 setTimeout(()=>{addEffectiveControls();seedSnapshots();historic();ensureDrawer();renderDrawer()},1300);
+})();
+</script>
+
+
+<style id="last-production-import-notice-style">
+.last-production-import-notice{display:flex;align-items:center;gap:9px;padding:9px 12px;margin:0 0 12px;border:1px solid rgba(59,130,246,.24);border-radius:10px;background:linear-gradient(135deg,var(--bdim),var(--card));color:var(--tx2);font-size:12px;line-height:1.45;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.last-production-import-notice .lpi-icon{display:flex;align-items:center;justify-content:center;width:27px;height:27px;flex:0 0 27px;border-radius:8px;background:var(--blue);color:#fff;font-size:13px}
+.last-production-import-notice .lpi-text{min-width:0}.last-production-import-notice .lpi-text b{color:var(--tx);font-weight:800}.last-production-import-notice .lpi-meta{display:block;margin-top:1px;color:var(--tx3);font-size:10.5px}
+.last-production-import-notice.lpi-empty{border-color:var(--bdr);background:var(--card2)}
+@media(max-width:600px){.last-production-import-notice{align-items:flex-start;font-size:11.5px}}
+</style>
+<script id="last-production-import-notice-script">
+(function(){
+ 'use strict';
+ const TARGET_PAGES=['mystats','allentries','importproduction','dashboard','taskgroups'];
+ function formatImportDateGMT(value){
+  if(!value)return '';
+  const d=new Date(value);if(Number.isNaN(d.getTime()))return '';
+  const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const day=String(d.getUTCDate()).padStart(2,'0');
+  const month=months[d.getUTCMonth()];
+  const year=d.getUTCFullYear();
+  const hour=String(d.getUTCHours()).padStart(2,'0');
+  const minute=String(d.getUTCMinutes()).padStart(2,'0');
+  return day+'-'+month+'-'+year+' '+hour+':'+minute+' GMT';
+ }
+ function noticeHtml(){
+  const formatted=formatImportDateGMT(settings?.lastProductionImportAt);
+  if(!formatted){
+   return '<div class="last-production-import-notice lpi-empty" data-last-production-import-notice="1"><span class="lpi-icon">↻</span><div class="lpi-text"><b>No production import date recorded yet.</b><span class="lpi-meta">The date will appear after entries are successfully imported from the Import Production page.</span></div></div>';
+  }
+  const count=Number(settings?.lastProductionImportEntryCount)||0;
+  const file=String(settings?.lastProductionImportFileName||'').trim();
+  const meta=[count?count+' '+(count===1?'entry':'entries')+' imported':'',file?'File: '+file:''].filter(Boolean).join(' · ');
+  return '<div class="last-production-import-notice" data-last-production-import-notice="1"><span class="lpi-icon">↻</span><div class="lpi-text"><b>This data is based on the imported data of '+escapeHtml(formatted)+'.</b>'+(meta?'<span class="lpi-meta">'+escapeHtml(meta)+'</span>':'')+'</div></div>';
+ }
+ function renderLastProductionImportNotices(){
+  TARGET_PAGES.forEach(pageKey=>{
+   const page=document.getElementById('pg-'+pageKey);if(!page)return;
+   page.querySelectorAll('[data-last-production-import-notice="1"]').forEach(el=>el.remove());
+   const wrap=document.createElement('div');wrap.innerHTML=noticeHtml();const notice=wrap.firstElementChild;
+   const first=page.firstElementChild;page.insertBefore(notice,first||null);
+  });
+ }
+ window.formatLastProductionImportDateGMT=formatImportDateGMT;
+ window.renderLastProductionImportNotices=renderLastProductionImportNotices;
+ const originalLoadAllData=window.loadAllData||loadAllData;
+ if(typeof originalLoadAllData==='function'){
+  loadAllData=async function(){const result=await originalLoadAllData.apply(this,arguments);renderLastProductionImportNotices();return result;};
+  window.loadAllData=loadAllData;
+ }
+ const renderNames=['renderMyStats','renderDashboard','renderAllEntries','renderImportProduction','renderTaskGroups'];
+ renderNames.forEach(name=>{
+  const original=window[name];if(typeof original!=='function')return;
+  const enhanced=function(){const result=original.apply(this,arguments);setTimeout(renderLastProductionImportNotices,0);return result;};
+  window[name]=enhanced;
+  try{if(name==='renderMyStats')renderMyStats=enhanced;else if(name==='renderDashboard')renderDashboard=enhanced;else if(name==='renderAllEntries')renderAllEntries=enhanced;else if(name==='renderImportProduction')renderImportProduction=enhanced;else if(name==='renderTaskGroups')renderTaskGroups=enhanced;}catch(e){}
+ });
+ const observer=new MutationObserver(()=>{clearTimeout(observer._t);observer._t=setTimeout(renderLastProductionImportNotices,80)});
+ observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
+ setTimeout(renderLastProductionImportNotices,900);
+})();
+</script>
+
+
+<style id="pt-last-import-date-style">
+.pt-data-basis{display:flex;align-items:center;gap:9px;padding:10px 13px;margin:0 0 14px;border:1px solid rgba(59,130,246,.24);border-left:4px solid var(--blue);border-radius:10px;background:var(--bdim);color:var(--tx2);font-size:12px;line-height:1.45}
+.pt-data-basis strong{color:var(--tx);font-family:'JetBrains Mono',monospace}.pt-data-basis-icon{font-size:15px;flex:0 0 auto}
+</style>
+<script id="pt-last-import-date-script">
+(function(){
+ 'use strict';
+ const TARGET_PAGES=['mystats','allentries','importproduction','dashboard','taskgroups'];
+ let saveTimer=null;
+ function importedEntry(e){return !!e&&(e.importedSource==='ComponentTATStatus'||e.importBatchId||e.importExcelRow);}
+ function utcText(value){
+  const d=new Date(value);if(!value||Number.isNaN(d.getTime()))return '';
+  const day=String(d.getUTCDate()).padStart(2,'0');
+  const mon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
+  return day+'-'+mon+'-'+d.getUTCFullYear()+' '+String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0')+' GMT';
+ }
+ function latestStored(){
+  const direct=settings.lastProductionImportAt;
+  const completions=Array.isArray(settings.importProductionCompletions)?settings.importProductionCompletions:[];
+  const completion=completions.map(x=>x?.completedAt).filter(Boolean).sort().pop();
+  const imported=(Array.isArray(entries)?entries:[]).filter(importedEntry).map(e=>e.importCompletedAt||e.importedAt||e.created_at||e.updated_at).filter(Boolean).sort().pop();
+  return [direct,completion,imported].filter(Boolean).sort().pop()||'';
+ }
+ function banner(page){
+  const host=document.getElementById('pg-'+page);if(!host)return;
+  let el=host.querySelector(':scope > .pt-data-basis');
+  if(!el){el=document.createElement('div');el.className='pt-data-basis';el.setAttribute('role','status');host.insertBefore(el,host.firstChild)}
+  const last=latestStored(),formatted=utcText(last);
+  el.innerHTML=formatted?'<span class="pt-data-basis-icon">ⓘ</span><span>This data is based on the imported data of <strong>'+escapeHtml(formatted)+'</strong>.</span>':'<span class="pt-data-basis-icon">ⓘ</span><span>No successful Import Production date has been recorded yet.</span>';
+ }
+ function renderAll(){TARGET_PAGES.forEach(banner)}
+ function saveLastImport(iso){
+  if(!iso)return;settings.lastProductionImportAt=iso;
+  clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{try{await DB.saveSettings(settings)}catch(e){console.warn('Last import date save failed:',e)}},180);
+  renderAll();
+ }
+ window.setLastProductionImportDate=function(value){saveLastImport(value||new Date().toISOString())};
+ window.renderLastProductionImportDate=renderAll;
+ // Capture every successfully created imported entry. This covers all Import Production commit paths.
+ const previousUpsert=DB.upsert.bind(DB);
+ DB.upsert=async function(table,row){
+  const isImported=table==='entries'&&importedEntry(row)&&!row?.id;
+  const payload=isImported?{...row,importCompletedAt:new Date().toISOString()}:row;
+  const saved=await previousUpsert(table,payload);
+  if(isImported)saveLastImport(saved.importCompletedAt||payload.importCompletedAt);
+  return saved;
+ };
+ // If this file already contains older imported records, recover the latest reliable timestamp once.
+ setTimeout(()=>{
+  if(!settings.lastProductionImportAt){const recovered=latestStored();if(recovered)saveLastImport(recovered)}
+  renderAll();
+ },1500);
+ const observer=new MutationObserver(()=>{clearTimeout(observer.t);observer.t=setTimeout(renderAll,70)});
+ observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
 })();
 </script>
 
