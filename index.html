@@ -2706,7 +2706,25 @@ let techs = [], parts = [], leaders = [], controllers = [], managers = [], entri
 let departments = [];
 let shopPerf = []; // {id, dept, weekStart, sdt:[5], scrap:[5], comment, updatedBy, updatedAt}
 let appUsers = [];
-let settings = { defaultMonthlyTarget: 160, passwords: {}, permissions: null, shopReportComments: {} };
+const SETTINGS_DEFAULTS = { defaultMonthlyTarget: 160, passwords: {}, permissions: null, shopReportComments: {} };
+const SETTINGS_CACHE_KEY = 'protrack.settings.backup.v2';
+let settings = structuredClone(SETTINGS_DEFAULTS);
+let settingsBaseline = structuredClone(SETTINGS_DEFAULTS);
+let settingsSaveChain = Promise.resolve();
+function cloneSettings(v) { try { return structuredClone(v); } catch (_) { return JSON.parse(JSON.stringify(v)); } }
+function deepMergeSettings(base, incoming) {
+ const out = cloneSettings(base || {});
+ if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return out;
+ Object.keys(incoming).forEach(k => {
+  const v = incoming[k];
+  if (v && typeof v === 'object' && !Array.isArray(v) && out[k] && typeof out[k] === 'object' && !Array.isArray(out[k])) out[k] = deepMergeSettings(out[k], v);
+  else out[k] = cloneSettings(v);
+ });
+ return out;
+}
+function cacheSettings(v) { try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(v)); } catch (_) {} }
+function cachedSettings() { try { const v=JSON.parse(localStorage.getItem(SETTINGS_CACHE_KEY)||'null'); return v && typeof v==='object' ? v : null; } catch (_) { return null; } }
+function sameSetting(a,b) { try { return JSON.stringify(a)===JSON.stringify(b); } catch (_) { return false; } }
 let profilePics = {};
 let selJobRole = 'Technician', selJobRoleIdx = 0;
 let selectedPartsByPrefix = { e: null, le: null };
@@ -2751,14 +2769,44 @@ const DB = {
  return true;
  },
  async getSettings() {
- const { data, error } = await sb.from('app_settings').select('value').eq('key', 'global').maybeSingle();
- if (error) throw error;
- return data ? data.value : null;
+ // Keep the legacy global row for compatibility, then overlay independently stored
+ // top-level settings. This prevents a later web-file deployment from resetting values.
+ const { data: globalRow, error: globalError } = await sb.from('app_settings').select('value').eq('key', 'global').maybeSingle();
+ if (globalError) throw globalError;
+ let combined = globalRow ? globalRow.value : null;
+ const { data: rows, error: rowsError } = await sb.from('app_settings').select('key,value').like('key', 'setting:%');
+ if (rowsError) throw rowsError;
+ if (rows && rows.length) {
+  combined = (combined && typeof combined === 'object') ? cloneSettings(combined) : {};
+  rows.forEach(r => { combined[r.key.slice(8)] = cloneSettings(r.value); });
+ }
+ return combined;
  },
  async saveSettings(obj) {
- const { error } = await sb.from('app_settings').upsert({ key: 'global', value: obj }, { onConflict: 'key' });
- if (error) throw error;
- return true;
+ // Serialize saves so an older request can never finish after a newer request.
+ const requested = cloneSettings(obj || {});
+ cacheSettings(requested);
+ settingsSaveChain = settingsSaveChain.catch(() => {}).then(async () => {
+  // Detect only the top-level sections changed by this browser session.
+  // Each section gets its own DB row, so unrelated settings cannot overwrite each other.
+  const keys = new Set([...Object.keys(settingsBaseline || {}), ...Object.keys(requested)]);
+  const changed = [...keys].filter(k => !sameSetting(requested[k], settingsBaseline?.[k]));
+  if (!changed.length) return true;
+  const rows = changed.map(k => ({ key: 'setting:' + k, value: requested[k] === undefined ? null : cloneSettings(requested[k]) }));
+  const { error: sectionError } = await sb.from('app_settings').upsert(rows, { onConflict: 'key' });
+  if (sectionError) throw sectionError;
+  // Update the legacy global row by merging only changed sections into its current value.
+  const { data: current, error: readError } = await sb.from('app_settings').select('value').eq('key','global').maybeSingle();
+  if (readError) throw readError;
+  const merged = (current?.value && typeof current.value === 'object') ? cloneSettings(current.value) : {};
+  changed.forEach(k => { if (requested[k] === undefined) delete merged[k]; else merged[k] = cloneSettings(requested[k]); });
+  const { error: globalError } = await sb.from('app_settings').upsert({ key:'global', value:merged }, { onConflict:'key' });
+  if (globalError) throw globalError;
+  changed.forEach(k => { if (requested[k] === undefined) delete settingsBaseline[k]; else settingsBaseline[k] = cloneSettings(requested[k]); });
+  cacheSettings(settings);
+  return true;
+ });
+ return settingsSaveChain;
  }
 };
 async function persistSettings() { try { await DB.saveSettings(settings); } catch (e) { console.warn('Settings save failed:', e); } }
@@ -6606,11 +6654,16 @@ async function loadAllData() {
  // Do not block login if one optional table is missing or restricted. Creating defaults can be done after login.
  try {
   const savedSettings = await DB.getSettings();
-  if (savedSettings) settings = savedSettings;
-  else if (!settings.permissions) settings.permissions = defaultPermissionsV2();
- } catch (settingsError) {
-  console.warn('Settings load failed; using safe defaults:', settingsError);
+  const fallbackSettings = cachedSettings();
+  settings = deepMergeSettings(SETTINGS_DEFAULTS, savedSettings || fallbackSettings || {});
   if (!settings.permissions) settings.permissions = defaultPermissionsV2();
+  settingsBaseline = cloneSettings(settings);
+  cacheSettings(settings);
+ } catch (settingsError) {
+  console.warn('Settings load failed; restoring the last browser backup:', settingsError);
+  settings = deepMergeSettings(SETTINGS_DEFAULTS, cachedSettings() || {});
+  if (!settings.permissions) settings.permissions = defaultPermissionsV2();
+  settingsBaseline = cloneSettings(settings);
  }
  if (failures.length) {
   window.__PROTRACK_LOAD_WARNINGS = failures.map(x => x.table);
