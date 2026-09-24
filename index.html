@@ -2777,42 +2777,35 @@ const DB = {
  },
  async getSettings() {
  if(!IS_ONLINE_WEB_APP)return mergeSetting(SETTINGS_DEFAULTS,{});
- const {data:globalRow,error:globalError}=await sb.from('app_settings').select('value').eq('key','global').maybeSingle();
- if(globalError)throw globalError;
- const {data:sectionRows,error:sectionError}=await sb.from('app_settings').select('key,value').like('key','setting:%');
- if(sectionError)throw sectionError;
- let loaded=mergeSetting(SETTINGS_DEFAULTS,globalRow?.value||{});
- (sectionRows||[]).forEach(row=>{const name=String(row.key||'').slice(8);if(name)loaded[name]=cloneSetting(row.value)});
- // Dedicated critical records win over the shared/global object.
- const [ratio,importTime,permissions]=await Promise.all([
-  this.getSettingKey('permanent:hour-ratios'),
-  this.getSettingKey('permanent:last-import-time'),
-  this.getSettingKey('permanent:permissions')
- ]);
- if(ratio){loaded.ratios=ratio.ratios||ratio;loaded.ratioHistory=ratio.ratioHistory||loaded.ratioHistory;loaded.partRatios=ratio.partRatios||loaded.partRatios;loaded.scrapDefaultHrs=ratio.scrapDefaultHrs??loaded.scrapDefaultHrs}
- if(importTime?.lastProductionImportAt){loaded.lastProductionImportAt=importTime.lastProductionImportAt;loaded.lastProductionImportEntryCount=importTime.lastProductionImportEntryCount||0;loaded.lastProductionImportFileName=importTime.lastProductionImportFileName||''}
- if(permissions&&typeof permissions==='object')loaded.permissions=permissions;
- return loaded;
+ // The latest append-only snapshot is authoritative. No default/global row may overwrite it.
+ const {data:snapshots,error:snapshotError}=await sb.from('app_settings').select('key,value').like('key','settings_snapshot:%').order('key',{ascending:false}).limit(1);
+ if(snapshotError)throw snapshotError;
+ if(snapshots?.[0]?.value)return mergeSetting(SETTINGS_DEFAULTS,snapshots[0].value);
+ // One-time compatibility fallback for installations that only have the old global row.
+ const {data:legacy,error:legacyError}=await sb.from('app_settings').select('value').eq('key','global').maybeSingle();
+ if(legacyError)throw legacyError;
+ return mergeSetting(SETTINGS_DEFAULTS,legacy?.value||{});
  },
  async saveSettings(obj) {
  if(!IS_ONLINE_WEB_APP)throw new Error('Permanent settings changes are blocked in local-file mode. Use the online web app.');
- const snapshot=cloneSetting(obj||{});snapshot._settingsUpdatedAt=new Date().toISOString();settings._settingsUpdatedAt=snapshot._settingsUpdatedAt;
- settingsSaveQueue=settingsSaveQueue.catch(()=>{}).then(async()=>{
-  // Store every top-level setting independently. A later code deployment or partial save
-  // cannot reset unrelated settings back to defaults.
-  const sectionRows=Object.entries(snapshot).map(([name,value])=>({key:'setting:'+name,value:cloneSetting(value)}));
-  if(sectionRows.length){const {error:sectionError}=await sb.from('app_settings').upsert(sectionRows,{onConflict:'key'});if(sectionError)throw sectionError}
-  const critical=[];
-  if(snapshot.permissions)critical.push({key:'permanent:permissions',value:cloneSetting(snapshot.permissions)});
-  if(snapshot.ratios||snapshot.ratioHistory||snapshot.partRatios||snapshot.scrapDefaultHrs!==undefined)critical.push({key:'permanent:hour-ratios',value:{ratios:cloneSetting(snapshot.ratios||{}),ratioHistory:cloneSetting(snapshot.ratioHistory||{}),partRatios:cloneSetting(snapshot.partRatios||{}),scrapDefaultHrs:snapshot.scrapDefaultHrs,updatedAt:snapshot._settingsUpdatedAt}});
-  if(snapshot.lastProductionImportAt)critical.push({key:'permanent:last-import-time',value:{lastProductionImportAt:snapshot.lastProductionImportAt,lastProductionImportEntryCount:snapshot.lastProductionImportEntryCount||0,lastProductionImportFileName:snapshot.lastProductionImportFileName||'',updatedAt:snapshot._settingsUpdatedAt}});
-  if(critical.length){const {error:criticalError}=await sb.from('app_settings').upsert(critical,{onConflict:'key'});if(criticalError)throw criticalError}
-  const {error:globalError}=await sb.from('app_settings').upsert({key:'global',value:snapshot},{onConflict:'key'});if(globalError)throw globalError;
-  return true;
- });
- return settingsSaveQueue;
+ const snapshot=cloneSetting(obj||{});
+ const savedAt=new Date().toISOString();
+ snapshot._settingsUpdatedAt=savedAt;
+ settings._settingsUpdatedAt=savedAt;
+ // Append a new row instead of updating an existing row. This prevents an older request,
+ // another browser, action-history autosave, or restrictive UPDATE policy from resetting settings.
+ const key='settings_snapshot:'+savedAt+':'+Math.random().toString(36).slice(2,10);
+ const {error:insertError}=await sb.from('app_settings').insert({key,value:snapshot});
+ if(insertError)throw insertError;
+ // Read back the exact row. A success message is never shown unless persistence is verified.
+ const {data:verified,error:verifyError}=await sb.from('app_settings').select('value').eq('key',key).single();
+ if(verifyError)throw verifyError;
+ if(!verified?.value||verified.value._settingsUpdatedAt!==savedAt)throw new Error('Database verification failed after saving settings.');
+ // Legacy global update is best-effort only and is never used over a snapshot.
+ sb.from('app_settings').upsert({key:'global',value:snapshot},{onConflict:'key'}).then(({error})=>{if(error)console.warn('Legacy global settings update skipped:',error)});
+ return true;
  }};
-async function persistSettings(){if(!requireOnlineSettingsChange())throw new Error('Online web app required');try{return await DB.saveSettings(settings)}catch(e){console.error('Settings save failed:',e);toast('Setting could not be saved to database: '+(e?.message||e),'error');throw e}}
+async function persistSettings(){if(!requireOnlineSettingsChange())throw new Error('Online web app required');try{const ok=await DB.saveSettings(settings);return ok}catch(e){console.error('Permanent settings save failed:',e);toast('Permanent save failed: '+(e?.message||e),'error');throw e}}
 window.addEventListener('pagehide',()=>writeSettingsCache(settings));
 
 // ────────────────────────────────────────────────
@@ -3294,17 +3287,9 @@ window.revokeAllPermRole = function () {
 };
 window.savePermissions=async function(){
  if(!requireOnlineSettingsChange())return;
- const value=cloneSetting(getPermissions());
- try{
-  await DB.saveSettingKey('permanent:permissions',value);
-  settings.permissions=value;
-  await persistSettings();
-  const verified=await DB.getSettingKey('permanent:permissions');
-  if(!verified)throw new Error('Permission verification failed after save.');
-  settings.permissions=cloneSetting(verified);
-  toast('Permissions saved permanently');
-  if(CU){buildNav();applyPermVisibility()}
- }catch(e){console.error(e);toast('Permissions were not saved: '+(e?.message||e),'error')}
+ settings.permissions=cloneSetting(getPermissions());
+ try{await persistSettings();toast('Permissions saved permanently and verified');if(CU){buildNav();applyPermVisibility()}}
+ catch(e){console.error(e)}
 };
 
 // Generic enforcement: any element tagged data-perm="pageKey:action" is shown/enabled only
@@ -6675,7 +6660,7 @@ async function loadAllData() {
  try {
   const savedSettings=await DB.getSettings();settings=mergeSetting(SETTINGS_DEFAULTS,savedSettings||{});
   if(!settings.permissions)settings.permissions=defaultPermissionsV2();
- }catch(settingsError){console.warn('Online settings load failed:',settingsError);settings=mergeSetting(SETTINGS_DEFAULTS,{});if(!settings.permissions)settings.permissions=defaultPermissionsV2();toast('Permanent settings could not be loaded from the online database.','error')}
+ }catch(settingsError){console.error('Permanent online settings load failed:',settingsError);settings=mergeSetting(SETTINGS_DEFAULTS,{});if(!settings.permissions)settings.permissions=defaultPermissionsV2();toast('Could not load permanent settings from database: '+(settingsError?.message||settingsError),'error')}
  if (failures.length) {
   window.__PROTRACK_LOAD_WARNINGS = failures.map(x => x.table);
  } else window.__PROTRACK_LOAD_WARNINGS = [];
@@ -12995,8 +12980,8 @@ window.saveDefaultRatios=async function(){
  try{await Promise.all([rawSave(settings),DB.saveSettingKey('permanent:hour-ratios',permanent)]);record('app_settings','edit',before,value,'Default hour ratios effective '+effectiveDate+': '+detail('app_settings','edit',before,value));renderRatios();toast('Default ratios saved permanently from '+effectiveDate)}
  catch(e){toast('Ratio saved locally, but database save failed: '+(e?.message||e),'error');renderRatios()}
 };
-window.saveOverride=async function(){if(!canI('ratios','edit')){toast('Not allowed','error');return}let pnum=(document.getElementById('mro-pnum')?.value||'').trim();if(!pnum)pnum=(document.getElementById('mro-sel-num')?.textContent||'').trim();if(!pnum){const typed=(document.getElementById('mro-part-search')?.value||'').trim(),exact=(parts||[]).find(p=>String(p.num||'').trim().toLowerCase()===typed.toLowerCase());if(exact)pnum=String(exact.num||'').trim()}const tech=gv('mro-tech'),sup=gv('mro-sup'),value={tech,sup,inspHrs:gv('mro-insp'),prelimHrs:gv('mro-prelim'),note:document.getElementById('mro-note')?.value.trim()||''},effectiveDate=document.getElementById('mro-effective-date')?.value||today();if(!pnum){toast('Select a part from the search result','error');return}const before=getRatioForPart(pnum,effectiveDate);ratioHist().parts[pnum] ||= [];ratioHist().parts[pnum]=ratioHist().parts[pnum].filter(x=>x.effectiveDate!==effectiveDate);ratioHist().parts[pnum].push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});settings.partRatios ||= {};settings.partRatios[pnum]=getRatioForPart(pnum,today());await rawSave(settings);record('app_settings','edit',before,value,'Hour-ratio override for part “'+pnum+'” effective '+effectiveDate+': '+detail('app_settings','edit',before,value));closeModal('m-override');renderOvList();toast('Override saved from '+effectiveDate)};
-window.saveScrapDefaultHrs=async function(){if(!requireOnlineSettingsChange())return;if(!canI('ratios','edit')){toast('Not allowed','error');return}const value=parseFloat(document.getElementById('scrap-default-hrs')?.value)||2,effectiveDate=document.getElementById('scrap-effective-date')?.value||today(),before=activeVersion(ratioHist().scrap,effectiveDate,settings.scrapDefaultHrs||2);ratioHist().scrap=ratioHist().scrap.filter(x=>x.effectiveDate!==effectiveDate);ratioHist().scrap.push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});settings.scrapDefaultHrs=activeVersion(ratioHist().scrap,today(),value);await rawSave(settings);record('app_settings','edit',{scrapDefaultHrs:before},{scrapDefaultHrs:value},'Scrap default hours changed from '+before+' hours to '+value+' hours effective '+effectiveDate+'.');toast('Scrap hours saved from '+effectiveDate)};
+window.saveOverride=async function(){if(!canI('ratios','edit')){toast('Not allowed','error');return}let pnum=(document.getElementById('mro-pnum')?.value||'').trim();if(!pnum)pnum=(document.getElementById('mro-sel-num')?.textContent||'').trim();if(!pnum){const typed=(document.getElementById('mro-part-search')?.value||'').trim(),exact=(parts||[]).find(p=>String(p.num||'').trim().toLowerCase()===typed.toLowerCase());if(exact)pnum=String(exact.num||'').trim()}const tech=gv('mro-tech'),sup=gv('mro-sup'),value={tech,sup,inspHrs:gv('mro-insp'),prelimHrs:gv('mro-prelim'),note:document.getElementById('mro-note')?.value.trim()||''},effectiveDate=document.getElementById('mro-effective-date')?.value||today();if(!pnum){toast('Select a part from the search result','error');return}const before=getRatioForPart(pnum,effectiveDate);ratioHist().parts[pnum] ||= [];ratioHist().parts[pnum]=ratioHist().parts[pnum].filter(x=>x.effectiveDate!==effectiveDate);ratioHist().parts[pnum].push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});settings.partRatios ||= {};settings.partRatios[pnum]=getRatioForPart(pnum,today());await DB.saveSettings(settings);record('app_settings','edit',before,value,'Hour-ratio override for part “'+pnum+'” effective '+effectiveDate+': '+detail('app_settings','edit',before,value));closeModal('m-override');renderOvList();toast('Override saved from '+effectiveDate)};
+window.saveScrapDefaultHrs=async function(){if(!requireOnlineSettingsChange())return;if(!canI('ratios','edit')){toast('Not allowed','error');return}const value=parseFloat(document.getElementById('scrap-default-hrs')?.value)||2,effectiveDate=document.getElementById('scrap-effective-date')?.value||today(),before=activeVersion(ratioHist().scrap,effectiveDate,settings.scrapDefaultHrs||2);ratioHist().scrap=ratioHist().scrap.filter(x=>x.effectiveDate!==effectiveDate);ratioHist().scrap.push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});settings.scrapDefaultHrs=activeVersion(ratioHist().scrap,today(),value);await DB.saveSettings(settings);record('app_settings','edit',{scrapDefaultHrs:before},{scrapDefaultHrs:value},'Scrap default hours changed from '+before+' hours to '+value+' hours effective '+effectiveDate+'.');toast('Scrap hours saved from '+effectiveDate)};
 function activePage(){return document.querySelector('.pg.on')?.id?.replace(/^pg-/,'')||''}
 function ensurePermissionShape(){const ps=getPermissions();['lead','mgr','ctrl','tech'].forEach(role=>{ps[role] ||= {};ps[role].actionhistory ||= mkPerm([]);if(ps[role].actionhistory.view===undefined)ps[role].actionhistory.view=false;if(ps[role].actionhistory.export===undefined)ps[role].actionhistory.export=false});DEFAULT_PERMISSIONS_V2.lead.actionhistory ||= mkPerm([]);DEFAULT_PERMISSIONS_V2.mgr.actionhistory ||= mkPerm([]);DEFAULT_PERMISSIONS_V2.ctrl.actionhistory ||= mkPerm([]);DEFAULT_PERMISSIONS_V2.tech.actionhistory ||= mkPerm([])}
 ensurePermissionShape();
