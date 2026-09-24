@@ -12937,8 +12937,8 @@ setTimeout(()=>{addEffectiveControls();seedSnapshots();historic();ensureDrawer()
 
 
 <style id="last-production-import-notice-style">
-.last-production-import-notice{display:flex;align-items:center;gap:9px;padding:10px 13px;margin:0 0 14px;border:1px solid rgba(59,130,246,.24);border-left:4px solid var(--blue);border-radius:10px;background:var(--bdim);color:var(--tx2);font-size:12px;line-height:1.45}
-.last-production-import-notice strong{color:var(--tx);font-family:'JetBrains Mono',monospace}.last-production-import-notice .lpi-icon{font-size:15px;flex:0 0 auto}
+.pt-data-basis{display:flex;align-items:center;gap:9px;padding:10px 13px;margin:0 0 14px;border:1px solid rgba(59,130,246,.24);border-left:4px solid var(--blue);border-radius:10px;background:var(--bdim);color:var(--tx2);font-size:12px;line-height:1.45}
+.pt-data-basis strong{color:var(--tx);font-family:'JetBrains Mono',monospace}.pt-data-basis-icon{font-size:15px;flex:0 0 auto}
 </style>
 <script id="last-production-import-notice-script">
 (function(){
@@ -12958,11 +12958,14 @@ setTimeout(()=>{addEffectiveControls();seedSnapshots();historic();ensureDrawer()
   const formatted=formatEthiopiaTime(settings?.lastProductionImportAt);
   TARGET_PAGES.forEach(pageKey=>{
    const page=document.getElementById('pg-'+pageKey);if(!page)return;
-   let notice=page.querySelector(':scope > [data-last-production-import-notice="1"]');
-   if(!notice){notice=document.createElement('div');notice.className='last-production-import-notice';notice.dataset.lastProductionImportNotice='1';notice.setAttribute('role','status');page.insertBefore(notice,page.firstChild)}
+   // Remove the old upper import card and any duplicate timestamp banners.
+   page.querySelectorAll(':scope > .last-production-import-notice, :scope > [data-last-production-import-notice="1"]:not(.pt-data-basis), :scope > .pt-data-basis').forEach(el=>el.remove());
+   const notice=document.createElement('div');
+   notice.className='pt-data-basis';notice.dataset.lastProductionImportNotice='1';notice.setAttribute('role','status');
    notice.innerHTML=formatted
-    ? '<span class="lpi-icon">ⓘ</span><span><strong>This data is based on the imported data of '+escapeHtml(formatted)+'.</strong></span>'
-    : '<span class="lpi-icon">ⓘ</span><span>No successful Import Production date has been recorded yet.</span>';
+    ? '<span class="pt-data-basis-icon">ⓘ</span><span>This data is based on the imported data of <strong>'+escapeHtml(formatted)+'.</strong></span>'
+    : '<span class="pt-data-basis-icon">ⓘ</span><span>No successful Import Production date has been recorded yet.</span>';
+   page.insertBefore(notice,page.firstChild);
   });
  }
  async function recordSuccessfulImport(count,fileName,completedAt){
