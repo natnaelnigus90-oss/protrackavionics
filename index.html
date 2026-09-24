@@ -2707,16 +2707,22 @@ let departments = [];
 let shopPerf = []; // {id, dept, weekStart, sdt:[5], scrap:[5], comment, updatedBy, updatedAt}
 let appUsers = [];
 const SETTINGS_DEFAULTS={defaultMonthlyTarget:160,passwords:{},permissions:null,shopReportComments:{}};
+const IS_ONLINE_WEB_APP=location.protocol==='https:'||location.protocol==='http:';
 const SETTINGS_CACHE_KEY='protrack.permanent.settings.v4';
+function requireOnlineSettingsChange(){
+ if(IS_ONLINE_WEB_APP)return true;
+ toast('Settings can only be changed permanently from the online web app. Local-file changes are blocked.','error');
+ return false;
+}
 let settings=structuredClone(SETTINGS_DEFAULTS),settingsSaveQueue=Promise.resolve();
 function cloneSetting(v){try{return structuredClone(v)}catch(_){return JSON.parse(JSON.stringify(v))}}
 function mergeSetting(a,b){const o=cloneSetting(a||{});if(!b||typeof b!=='object'||Array.isArray(b))return o;Object.keys(b).forEach(k=>{const v=b[k];o[k]=(v&&typeof v==='object'&&!Array.isArray(v)&&o[k]&&typeof o[k]==='object'&&!Array.isArray(o[k]))?mergeSetting(o[k],v):cloneSetting(v)});return o}
-function readSettingsCache(){try{return JSON.parse(localStorage.getItem(SETTINGS_CACHE_KEY)||'null')}catch(_){return null}}
-function writeSettingsCache(v){try{localStorage.setItem(SETTINGS_CACHE_KEY,JSON.stringify(v))}catch(e){console.warn(e)}}
+function readSettingsCache(){if(!IS_ONLINE_WEB_APP)return null;try{return JSON.parse(localStorage.getItem(SETTINGS_CACHE_KEY)||'null')}catch(_){return null}}
+function writeSettingsCache(v){if(!IS_ONLINE_WEB_APP)return false;try{localStorage.setItem(SETTINGS_CACHE_KEY,JSON.stringify(v));return true}catch(e){console.warn(e);return false}}
 const RATIO_CACHE_KEY='protrack.hour.ratios.permanent.v1';
 const IMPORT_TIME_CACHE_KEY='protrack.last.import.time.permanent.v1';
-function readPermanentItem(key){try{return JSON.parse(localStorage.getItem(key)||'null')}catch(_){return null}}
-function writePermanentItem(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch(e){console.warn('Permanent local save failed:',e)}}
+function readPermanentItem(key){if(!IS_ONLINE_WEB_APP)return null;try{return JSON.parse(localStorage.getItem(key)||'null')}catch(_){return null}}
+function writePermanentItem(key,value){if(!IS_ONLINE_WEB_APP)return false;try{localStorage.setItem(key,JSON.stringify(value));return true}catch(e){console.warn('Permanent local save failed:',e);return false}}
 let profilePics = {};
 let selJobRole = 'Technician', selJobRoleIdx = 0;
 let selectedPartsByPrefix = { e: null, le: null };
@@ -2765,6 +2771,7 @@ const DB = {
  if(error)throw error;return data?.value??null;
  },
  async saveSettingKey(key,value) {
+ if(!IS_ONLINE_WEB_APP)throw new Error('Permanent settings changes are blocked in local-file mode. Use the online web app.');
  const {error}=await sb.from('app_settings').upsert({key,value},{onConflict:'key'});
  if(error)throw error;return true;
  },
@@ -2782,6 +2789,7 @@ const DB = {
  writeSettingsCache(loaded);return loaded;
  },
  async saveSettings(obj) {
+ if(!IS_ONLINE_WEB_APP)throw new Error('Permanent settings changes are blocked in local-file mode. Use the online web app.');
  const snapshot=cloneSetting(obj||{});snapshot._settingsUpdatedAt=new Date().toISOString();
  settings._settingsUpdatedAt=snapshot._settingsUpdatedAt;writeSettingsCache(snapshot);
  settingsSaveQueue=settingsSaveQueue.catch(()=>{}).then(async()=>{
@@ -12951,6 +12959,7 @@ function addEffectiveControls(){
 const oldRenderRatios=window.renderRatios;window.renderRatios=function(){addEffectiveControls();const r=oldRenderRatios.apply(this,arguments);sv('ratio-effective-date',today());return r};
 const oldOpenOverride=window.openAddOverride;window.openAddOverride=function(){addEffectiveControls();const r=oldOpenOverride.apply(this,arguments);sv('mro-effective-date',today());return r};
 window.saveDefaultRatios=async function(){
+ if(!requireOnlineSettingsChange())return;
  if(!canI('ratios','edit')){toast('Not allowed','error');return}
  const tech=gv('r-tech'),sup=gv('r-sup');if(tech+sup<=0){toast('Ratio total must be greater than 0','error');return}
  const value={tech,sup,inspHrs:gv('r-insp-hrs'),prelimHrs:gv('r-prelim-hrs')};
@@ -12964,7 +12973,7 @@ window.saveDefaultRatios=async function(){
  catch(e){toast('Ratio saved locally, but database save failed: '+(e?.message||e),'error');renderRatios()}
 };
 window.saveOverride=async function(){if(!canI('ratios','edit')){toast('Not allowed','error');return}let pnum=(document.getElementById('mro-pnum')?.value||'').trim();if(!pnum)pnum=(document.getElementById('mro-sel-num')?.textContent||'').trim();if(!pnum){const typed=(document.getElementById('mro-part-search')?.value||'').trim(),exact=(parts||[]).find(p=>String(p.num||'').trim().toLowerCase()===typed.toLowerCase());if(exact)pnum=String(exact.num||'').trim()}const tech=gv('mro-tech'),sup=gv('mro-sup'),value={tech,sup,inspHrs:gv('mro-insp'),prelimHrs:gv('mro-prelim'),note:document.getElementById('mro-note')?.value.trim()||''},effectiveDate=document.getElementById('mro-effective-date')?.value||today();if(!pnum){toast('Select a part from the search result','error');return}const before=getRatioForPart(pnum,effectiveDate);ratioHist().parts[pnum] ||= [];ratioHist().parts[pnum]=ratioHist().parts[pnum].filter(x=>x.effectiveDate!==effectiveDate);ratioHist().parts[pnum].push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});settings.partRatios ||= {};settings.partRatios[pnum]=getRatioForPart(pnum,today());await rawSave(settings);record('app_settings','edit',before,value,'Hour-ratio override for part “'+pnum+'” effective '+effectiveDate+': '+detail('app_settings','edit',before,value));closeModal('m-override');renderOvList();toast('Override saved from '+effectiveDate)};
-window.saveScrapDefaultHrs=async function(){if(!canI('ratios','edit')){toast('Not allowed','error');return}const value=parseFloat(document.getElementById('scrap-default-hrs')?.value)||2,effectiveDate=document.getElementById('scrap-effective-date')?.value||today(),before=activeVersion(ratioHist().scrap,effectiveDate,settings.scrapDefaultHrs||2);ratioHist().scrap=ratioHist().scrap.filter(x=>x.effectiveDate!==effectiveDate);ratioHist().scrap.push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});settings.scrapDefaultHrs=activeVersion(ratioHist().scrap,today(),value);await rawSave(settings);record('app_settings','edit',{scrapDefaultHrs:before},{scrapDefaultHrs:value},'Scrap default hours changed from '+before+' hours to '+value+' hours effective '+effectiveDate+'.');toast('Scrap hours saved from '+effectiveDate)};
+window.saveScrapDefaultHrs=async function(){if(!requireOnlineSettingsChange())return;if(!canI('ratios','edit')){toast('Not allowed','error');return}const value=parseFloat(document.getElementById('scrap-default-hrs')?.value)||2,effectiveDate=document.getElementById('scrap-effective-date')?.value||today(),before=activeVersion(ratioHist().scrap,effectiveDate,settings.scrapDefaultHrs||2);ratioHist().scrap=ratioHist().scrap.filter(x=>x.effectiveDate!==effectiveDate);ratioHist().scrap.push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});settings.scrapDefaultHrs=activeVersion(ratioHist().scrap,today(),value);await rawSave(settings);record('app_settings','edit',{scrapDefaultHrs:before},{scrapDefaultHrs:value},'Scrap default hours changed from '+before+' hours to '+value+' hours effective '+effectiveDate+'.');toast('Scrap hours saved from '+effectiveDate)};
 function activePage(){return document.querySelector('.pg.on')?.id?.replace(/^pg-/,'')||''}
 function ensurePermissionShape(){const ps=getPermissions();['lead','mgr','ctrl','tech'].forEach(role=>{ps[role] ||= {};ps[role].actionhistory ||= mkPerm([]);if(ps[role].actionhistory.view===undefined)ps[role].actionhistory.view=false;if(ps[role].actionhistory.export===undefined)ps[role].actionhistory.export=false});DEFAULT_PERMISSIONS_V2.lead.actionhistory ||= mkPerm([]);DEFAULT_PERMISSIONS_V2.mgr.actionhistory ||= mkPerm([]);DEFAULT_PERMISSIONS_V2.ctrl.actionhistory ||= mkPerm([]);DEFAULT_PERMISSIONS_V2.tech.actionhistory ||= mkPerm([])}
 ensurePermissionShape();
@@ -13015,6 +13024,7 @@ setTimeout(()=>{addEffectiveControls();seedSnapshots();historic();ensureDrawer()
  }
  async function recordSuccessfulImport(count,fileName,completedAt){
   const created=Number(count)||0;if(created<1)return false;
+  if(!IS_ONLINE_WEB_APP){render();return false;}
   const iso=completedAt||new Date().toISOString();
   settings.lastProductionImportAt=iso;
   settings.lastProductionImportEntryCount=created;
@@ -13040,6 +13050,22 @@ setTimeout(()=>{addEffectiveControls();seedSnapshots();historic();ensureDrawer()
  observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
  setTimeout(render,900);
 })();
+</script>
+<script id="online-only-settings-guard">
+function enforceOnlineOnlySettingsUI(){
+ if(IS_ONLINE_WEB_APP)return;
+ const settingsPages=['settings','ratios','permissions','pwmgmt','analytics-configuration'];
+ settingsPages.forEach(key=>{
+  const page=document.getElementById('pg-'+key);if(!page)return;
+  page.querySelectorAll('button[onclick*="save" i],button[onclick*="delete" i],button[onclick*="remove" i],button[data-perm]').forEach(btn=>{btn.disabled=true;btn.title='Permanent settings can only be changed from the online web app.'});
+ });
+ if(!document.getElementById('online-settings-only-banner')){
+  const style=document.createElement('style');style.id='online-settings-only-banner';style.textContent='.online-only-warning{margin:0 0 14px;padding:10px 13px;border:1px solid #f59e0b;border-left:4px solid #f59e0b;border-radius:10px;background:rgba(245,158,11,.10);font-size:12px;color:var(--tx2)}';document.head.appendChild(style);
+ }
+ settingsPages.forEach(key=>{const page=document.getElementById('pg-'+key);if(page&&!page.querySelector(':scope > .online-only-warning'))page.insertAdjacentHTML('afterbegin','<div class="online-only-warning"><b>Local test mode:</b> Permanent settings changes are disabled. Open the deployed online web app to change settings.</div>')});
+}
+document.addEventListener('DOMContentLoaded',()=>setTimeout(enforceOnlineOnlySettingsUI,1000));
+new MutationObserver(()=>{clearTimeout(window.__onlineUiTimer);window.__onlineUiTimer=setTimeout(enforceOnlineOnlySettingsUI,100)}).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
 </script>
 </body>
 </html>
