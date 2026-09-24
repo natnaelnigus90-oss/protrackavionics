@@ -2706,7 +2706,17 @@ let techs = [], parts = [], leaders = [], controllers = [], managers = [], entri
 let departments = [];
 let shopPerf = []; // {id, dept, weekStart, sdt:[5], scrap:[5], comment, updatedBy, updatedAt}
 let appUsers = [];
-let settings = { defaultMonthlyTarget: 160, passwords: {}, permissions: null, shopReportComments: {} };
+const SETTINGS_DEFAULTS={defaultMonthlyTarget:160,passwords:{},permissions:null,shopReportComments:{}};
+const SETTINGS_CACHE_KEY='protrack.permanent.settings.v4';
+let settings=structuredClone(SETTINGS_DEFAULTS),settingsSaveQueue=Promise.resolve();
+function cloneSetting(v){try{return structuredClone(v)}catch(_){return JSON.parse(JSON.stringify(v))}}
+function mergeSetting(a,b){const o=cloneSetting(a||{});if(!b||typeof b!=='object'||Array.isArray(b))return o;Object.keys(b).forEach(k=>{const v=b[k];o[k]=(v&&typeof v==='object'&&!Array.isArray(v)&&o[k]&&typeof o[k]==='object'&&!Array.isArray(o[k]))?mergeSetting(o[k],v):cloneSetting(v)});return o}
+function readSettingsCache(){try{return JSON.parse(localStorage.getItem(SETTINGS_CACHE_KEY)||'null')}catch(_){return null}}
+function writeSettingsCache(v){try{localStorage.setItem(SETTINGS_CACHE_KEY,JSON.stringify(v))}catch(e){console.warn(e)}}
+const RATIO_CACHE_KEY='protrack.hour.ratios.permanent.v1';
+const IMPORT_TIME_CACHE_KEY='protrack.last.import.time.permanent.v1';
+function readPermanentItem(key){try{return JSON.parse(localStorage.getItem(key)||'null')}catch(_){return null}}
+function writePermanentItem(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch(e){console.warn('Permanent local save failed:',e)}}
 let profilePics = {};
 let selJobRole = 'Technician', selJobRoleIdx = 0;
 let selectedPartsByPrefix = { e: null, le: null };
@@ -2750,18 +2760,38 @@ const DB = {
  if (error) throw error;
  return true;
  },
+ async getSettingKey(key) {
+ const {data,error}=await sb.from('app_settings').select('value').eq('key',key).maybeSingle();
+ if(error)throw error;return data?.value??null;
+ },
+ async saveSettingKey(key,value) {
+ const {error}=await sb.from('app_settings').upsert({key,value},{onConflict:'key'});
+ if(error)throw error;return true;
+ },
  async getSettings() {
- const { data, error } = await sb.from('app_settings').select('value').eq('key', 'global').maybeSingle();
- if (error) throw error;
- return data ? data.value : null;
+ const local=readSettingsCache();let remote=null;
+ try{const {data,error}=await sb.from('app_settings').select('value').eq('key','global').maybeSingle();if(error)throw error;remote=data?.value||null}catch(error){if(!local)throw error;console.warn('Using local settings backup:',error)}
+ const lv=Date.parse(local?._settingsUpdatedAt||'')||0,rv=Date.parse(remote?._settingsUpdatedAt||'')||0;
+ let loaded=mergeSetting(SETTINGS_DEFAULTS,lv>rv?local:(remote||local||{}));
+ // Ratios and import time are also stored independently so no global-settings overwrite can reset them.
+ const localRatio=readPermanentItem(RATIO_CACHE_KEY),localImport=readPermanentItem(IMPORT_TIME_CACHE_KEY);
+ try{const [dbRatio,dbImport]=await Promise.all([this.getSettingKey('permanent:hour-ratios'),this.getSettingKey('permanent:last-import-time')]);
+  const ratio=dbRatio||localRatio;if(ratio){loaded.ratios=ratio.ratios||ratio;loaded.ratioHistory=ratio.ratioHistory||loaded.ratioHistory;loaded.partRatios=ratio.partRatios||loaded.partRatios;loaded.scrapDefaultHrs=ratio.scrapDefaultHrs??loaded.scrapDefaultHrs;writePermanentItem(RATIO_CACHE_KEY,ratio)}
+  const imp=dbImport||localImport;if(imp?.lastProductionImportAt){loaded.lastProductionImportAt=imp.lastProductionImportAt;loaded.lastProductionImportEntryCount=imp.lastProductionImportEntryCount||0;loaded.lastProductionImportFileName=imp.lastProductionImportFileName||'';writePermanentItem(IMPORT_TIME_CACHE_KEY,imp)}
+ }catch(e){console.warn('Dedicated permanent settings load used local backup:',e);if(localRatio){loaded.ratios=localRatio.ratios||localRatio;loaded.ratioHistory=localRatio.ratioHistory||loaded.ratioHistory}if(localImport?.lastProductionImportAt)loaded.lastProductionImportAt=localImport.lastProductionImportAt}
+ writeSettingsCache(loaded);return loaded;
  },
  async saveSettings(obj) {
- const { error } = await sb.from('app_settings').upsert({ key: 'global', value: obj }, { onConflict: 'key' });
- if (error) throw error;
- return true;
+ const snapshot=cloneSetting(obj||{});snapshot._settingsUpdatedAt=new Date().toISOString();
+ settings._settingsUpdatedAt=snapshot._settingsUpdatedAt;writeSettingsCache(snapshot);
+ settingsSaveQueue=settingsSaveQueue.catch(()=>{}).then(async()=>{
+  const {error}=await sb.from('app_settings').upsert({key:'global',value:snapshot},{onConflict:'key'});if(error)throw error;writeSettingsCache(snapshot);return true;
+ });
+ return settingsSaveQueue;
  }
 };
-async function persistSettings() { try { await DB.saveSettings(settings); } catch (e) { console.warn('Settings save failed:', e); } }
+async function persistSettings(){try{return await DB.saveSettings(settings)}catch(e){console.error('Settings save failed:',e);toast('Setting could not be saved to database: '+(e?.message||e),'error');throw e}}
+window.addEventListener('pagehide',()=>writeSettingsCache(settings));
 
 // ────────────────────────────────────────────────
 // SUPABASE BOOTSTRAP
@@ -3390,7 +3420,14 @@ window.previewPic = previewPic;
 // ════════════════════════════════════════════════
 // RATIO HELPERS
 // ════════════════════════════════════════════════
-function getDefR() { return settings.ratios || { tech: 25, sup: 75, inspHrs: 1.0, prelimHrs: 1.0 }; }
+function getDefR(date){
+ const fallback=settings.ratios||{tech:25,sup:75,inspHrs:1.0,prelimHrs:1.0};
+ const hist=settings.ratioHistory?.defaults;
+ if(!Array.isArray(hist)||!hist.length)return fallback;
+ const d=String(date||today()).slice(0,10);let value=fallback;
+ hist.slice().sort((a,b)=>String(a.effectiveDate).localeCompare(String(b.effectiveDate))).forEach(x=>{if(String(x.effectiveDate)<=d&&x.value)value=x.value});
+ return value;
+}
 function getRatioForPart(partNum) { return (settings.partRatios || {})[partNum] || getDefR(); }
 function isInspRole(role) { return role === 'Inspector' || role === 'Preliminary Inspector'; }
 function isSDT(e) { if (e.jobType === 'scrap') return true; return !isInspRole(e.jobRole); }
@@ -6605,13 +6642,9 @@ async function loadAllData() {
  departments = loaded.departments.length ? loaded.departments : DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
  // Do not block login if one optional table is missing or restricted. Creating defaults can be done after login.
  try {
-  const savedSettings = await DB.getSettings();
-  if (savedSettings) settings = savedSettings;
-  else if (!settings.permissions) settings.permissions = defaultPermissionsV2();
- } catch (settingsError) {
-  console.warn('Settings load failed; using safe defaults:', settingsError);
-  if (!settings.permissions) settings.permissions = defaultPermissionsV2();
- }
+  const savedSettings=await DB.getSettings();settings=mergeSetting(SETTINGS_DEFAULTS,savedSettings||readSettingsCache()||{});
+  if(!settings.permissions)settings.permissions=defaultPermissionsV2();writeSettingsCache(settings);
+ }catch(settingsError){console.warn('Settings load failed; restored browser backup:',settingsError);settings=mergeSetting(SETTINGS_DEFAULTS,readSettingsCache()||{});if(!settings.permissions)settings.permissions=defaultPermissionsV2()}
  if (failures.length) {
   window.__PROTRACK_LOAD_WARNINGS = failures.map(x => x.table);
  } else window.__PROTRACK_LOAD_WARNINGS = [];
@@ -12917,7 +12950,19 @@ function addEffectiveControls(){
 }
 const oldRenderRatios=window.renderRatios;window.renderRatios=function(){addEffectiveControls();const r=oldRenderRatios.apply(this,arguments);sv('ratio-effective-date',today());return r};
 const oldOpenOverride=window.openAddOverride;window.openAddOverride=function(){addEffectiveControls();const r=oldOpenOverride.apply(this,arguments);sv('mro-effective-date',today());return r};
-window.saveDefaultRatios=async function(){if(!canI('ratios','edit')){toast('Not allowed','error');return}const tech=gv('r-tech'),sup=gv('r-sup');if(tech+sup<=0){toast('Ratio total must be greater than 0','error');return}const value={tech,sup,inspHrs:gv('r-insp-hrs'),prelimHrs:gv('r-prelim-hrs')},effectiveDate=document.getElementById('ratio-effective-date')?.value||today(),before=getDefR(effectiveDate);ratioHist().defaults=ratioHist().defaults.filter(x=>x.effectiveDate!==effectiveDate);ratioHist().defaults.push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});settings.ratios=getDefR(today());await rawSave(settings);record('app_settings','edit',before,value,'Default hour ratios effective '+effectiveDate+': '+detail('app_settings','edit',before,value));toast('Default ratios saved from '+effectiveDate)};
+window.saveDefaultRatios=async function(){
+ if(!canI('ratios','edit')){toast('Not allowed','error');return}
+ const tech=gv('r-tech'),sup=gv('r-sup');if(tech+sup<=0){toast('Ratio total must be greater than 0','error');return}
+ const value={tech,sup,inspHrs:gv('r-insp-hrs'),prelimHrs:gv('r-prelim-hrs')};
+ const effectiveDate=document.getElementById('ratio-effective-date')?.value||today(),before=getDefR(effectiveDate);
+ ratioHist().defaults=ratioHist().defaults.filter(x=>x.effectiveDate!==effectiveDate);
+ ratioHist().defaults.push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});
+ settings.ratios=value;
+ const permanent={ratios:cloneSetting(value),ratioHistory:cloneSetting(settings.ratioHistory),partRatios:cloneSetting(settings.partRatios||{}),scrapDefaultHrs:settings.scrapDefaultHrs,updatedAt:new Date().toISOString()};
+ writePermanentItem(RATIO_CACHE_KEY,permanent);writeSettingsCache(settings);
+ try{await Promise.all([rawSave(settings),DB.saveSettingKey('permanent:hour-ratios',permanent)]);record('app_settings','edit',before,value,'Default hour ratios effective '+effectiveDate+': '+detail('app_settings','edit',before,value));renderRatios();toast('Default ratios saved permanently from '+effectiveDate)}
+ catch(e){toast('Ratio saved locally, but database save failed: '+(e?.message||e),'error');renderRatios()}
+};
 window.saveOverride=async function(){if(!canI('ratios','edit')){toast('Not allowed','error');return}let pnum=(document.getElementById('mro-pnum')?.value||'').trim();if(!pnum)pnum=(document.getElementById('mro-sel-num')?.textContent||'').trim();if(!pnum){const typed=(document.getElementById('mro-part-search')?.value||'').trim(),exact=(parts||[]).find(p=>String(p.num||'').trim().toLowerCase()===typed.toLowerCase());if(exact)pnum=String(exact.num||'').trim()}const tech=gv('mro-tech'),sup=gv('mro-sup'),value={tech,sup,inspHrs:gv('mro-insp'),prelimHrs:gv('mro-prelim'),note:document.getElementById('mro-note')?.value.trim()||''},effectiveDate=document.getElementById('mro-effective-date')?.value||today();if(!pnum){toast('Select a part from the search result','error');return}const before=getRatioForPart(pnum,effectiveDate);ratioHist().parts[pnum] ||= [];ratioHist().parts[pnum]=ratioHist().parts[pnum].filter(x=>x.effectiveDate!==effectiveDate);ratioHist().parts[pnum].push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});settings.partRatios ||= {};settings.partRatios[pnum]=getRatioForPart(pnum,today());await rawSave(settings);record('app_settings','edit',before,value,'Hour-ratio override for part “'+pnum+'” effective '+effectiveDate+': '+detail('app_settings','edit',before,value));closeModal('m-override');renderOvList();toast('Override saved from '+effectiveDate)};
 window.saveScrapDefaultHrs=async function(){if(!canI('ratios','edit')){toast('Not allowed','error');return}const value=parseFloat(document.getElementById('scrap-default-hrs')?.value)||2,effectiveDate=document.getElementById('scrap-effective-date')?.value||today(),before=activeVersion(ratioHist().scrap,effectiveDate,settings.scrapDefaultHrs||2);ratioHist().scrap=ratioHist().scrap.filter(x=>x.effectiveDate!==effectiveDate);ratioHist().scrap.push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});settings.scrapDefaultHrs=activeVersion(ratioHist().scrap,today(),value);await rawSave(settings);record('app_settings','edit',{scrapDefaultHrs:before},{scrapDefaultHrs:value},'Scrap default hours changed from '+before+' hours to '+value+' hours effective '+effectiveDate+'.');toast('Scrap hours saved from '+effectiveDate)};
 function activePage(){return document.querySelector('.pg.on')?.id?.replace(/^pg-/,'')||''}
@@ -12955,7 +13000,7 @@ setTimeout(()=>{addEffectiveControls();seedSnapshots();historic();ensureDrawer()
   return parts.day+'-'+parts.month+'-'+parts.year+' '+parts.hour+':'+parts.minute+' EAT';
  }
  function render(){
-  const formatted=formatEthiopiaTime(settings?.lastProductionImportAt);
+  const formatted=formatEthiopiaTime(settings?.lastProductionImportAt||readPermanentItem(IMPORT_TIME_CACHE_KEY)?.lastProductionImportAt||readSettingsCache()?.lastProductionImportAt);
   TARGET_PAGES.forEach(pageKey=>{
    const page=document.getElementById('pg-'+pageKey);if(!page)return;
    // Remove the old upper import card and any duplicate timestamp banners.
@@ -12974,8 +13019,11 @@ setTimeout(()=>{addEffectiveControls();seedSnapshots();historic();ensureDrawer()
   settings.lastProductionImportAt=iso;
   settings.lastProductionImportEntryCount=created;
   if(fileName!==undefined)settings.lastProductionImportFileName=String(fileName||'');
+  writeSettingsCache(settings);
+  const permanentImport={lastProductionImportAt:iso,lastProductionImportEntryCount:created,lastProductionImportFileName:settings.lastProductionImportFileName||'',updatedAt:new Date().toISOString()};
+  writePermanentItem(IMPORT_TIME_CACHE_KEY,permanentImport);
   render();
-  saveChain=saveChain.catch(()=>{}).then(()=>DB.saveSettings(settings));
+  saveChain=saveChain.catch(()=>{}).then(()=>Promise.all([DB.saveSettings(settings),DB.saveSettingKey('permanent:last-import-time',permanentImport)]));
   try{await saveChain;return true}catch(e){console.error('Last successful Import Production timestamp could not be saved:',e);toast('Entries were imported, but the import timestamp could not be saved: '+(e?.message||e),'error');return false}
  }
  window.recordSuccessfulProductionImport=recordSuccessfulImport;
