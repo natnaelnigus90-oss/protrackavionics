@@ -2706,25 +2706,7 @@ let techs = [], parts = [], leaders = [], controllers = [], managers = [], entri
 let departments = [];
 let shopPerf = []; // {id, dept, weekStart, sdt:[5], scrap:[5], comment, updatedBy, updatedAt}
 let appUsers = [];
-const SETTINGS_DEFAULTS = { defaultMonthlyTarget: 160, passwords: {}, permissions: null, shopReportComments: {} };
-const SETTINGS_CACHE_KEY = 'protrack.settings.backup.v2';
-let settings = structuredClone(SETTINGS_DEFAULTS);
-let settingsBaseline = structuredClone(SETTINGS_DEFAULTS);
-let settingsSaveChain = Promise.resolve();
-function cloneSettings(v) { try { return structuredClone(v); } catch (_) { return JSON.parse(JSON.stringify(v)); } }
-function deepMergeSettings(base, incoming) {
- const out = cloneSettings(base || {});
- if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return out;
- Object.keys(incoming).forEach(k => {
-  const v = incoming[k];
-  if (v && typeof v === 'object' && !Array.isArray(v) && out[k] && typeof out[k] === 'object' && !Array.isArray(out[k])) out[k] = deepMergeSettings(out[k], v);
-  else out[k] = cloneSettings(v);
- });
- return out;
-}
-function cacheSettings(v) { try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(v)); } catch (_) {} }
-function cachedSettings() { try { const v=JSON.parse(localStorage.getItem(SETTINGS_CACHE_KEY)||'null'); return v && typeof v==='object' ? v : null; } catch (_) { return null; } }
-function sameSetting(a,b) { try { return JSON.stringify(a)===JSON.stringify(b); } catch (_) { return false; } }
+let settings = { defaultMonthlyTarget: 160, passwords: {}, permissions: null, shopReportComments: {} };
 let profilePics = {};
 let selJobRole = 'Technician', selJobRoleIdx = 0;
 let selectedPartsByPrefix = { e: null, le: null };
@@ -2769,44 +2751,14 @@ const DB = {
  return true;
  },
  async getSettings() {
- // Keep the legacy global row for compatibility, then overlay independently stored
- // top-level settings. This prevents a later web-file deployment from resetting values.
- const { data: globalRow, error: globalError } = await sb.from('app_settings').select('value').eq('key', 'global').maybeSingle();
- if (globalError) throw globalError;
- let combined = globalRow ? globalRow.value : null;
- const { data: rows, error: rowsError } = await sb.from('app_settings').select('key,value').like('key', 'setting:%');
- if (rowsError) throw rowsError;
- if (rows && rows.length) {
-  combined = (combined && typeof combined === 'object') ? cloneSettings(combined) : {};
-  rows.forEach(r => { combined[r.key.slice(8)] = cloneSettings(r.value); });
- }
- return combined;
+ const { data, error } = await sb.from('app_settings').select('value').eq('key', 'global').maybeSingle();
+ if (error) throw error;
+ return data ? data.value : null;
  },
  async saveSettings(obj) {
- // Serialize saves so an older request can never finish after a newer request.
- const requested = cloneSettings(obj || {});
- cacheSettings(requested);
- settingsSaveChain = settingsSaveChain.catch(() => {}).then(async () => {
-  // Detect only the top-level sections changed by this browser session.
-  // Each section gets its own DB row, so unrelated settings cannot overwrite each other.
-  const keys = new Set([...Object.keys(settingsBaseline || {}), ...Object.keys(requested)]);
-  const changed = [...keys].filter(k => !sameSetting(requested[k], settingsBaseline?.[k]));
-  if (!changed.length) return true;
-  const rows = changed.map(k => ({ key: 'setting:' + k, value: requested[k] === undefined ? null : cloneSettings(requested[k]) }));
-  const { error: sectionError } = await sb.from('app_settings').upsert(rows, { onConflict: 'key' });
-  if (sectionError) throw sectionError;
-  // Update the legacy global row by merging only changed sections into its current value.
-  const { data: current, error: readError } = await sb.from('app_settings').select('value').eq('key','global').maybeSingle();
-  if (readError) throw readError;
-  const merged = (current?.value && typeof current.value === 'object') ? cloneSettings(current.value) : {};
-  changed.forEach(k => { if (requested[k] === undefined) delete merged[k]; else merged[k] = cloneSettings(requested[k]); });
-  const { error: globalError } = await sb.from('app_settings').upsert({ key:'global', value:merged }, { onConflict:'key' });
-  if (globalError) throw globalError;
-  changed.forEach(k => { if (requested[k] === undefined) delete settingsBaseline[k]; else settingsBaseline[k] = cloneSettings(requested[k]); });
-  cacheSettings(settings);
-  return true;
- });
- return settingsSaveChain;
+ const { error } = await sb.from('app_settings').upsert({ key: 'global', value: obj }, { onConflict: 'key' });
+ if (error) throw error;
+ return true;
  }
 };
 async function persistSettings() { try { await DB.saveSettings(settings); } catch (e) { console.warn('Settings save failed:', e); } }
@@ -6654,16 +6606,11 @@ async function loadAllData() {
  // Do not block login if one optional table is missing or restricted. Creating defaults can be done after login.
  try {
   const savedSettings = await DB.getSettings();
-  const fallbackSettings = cachedSettings();
-  settings = deepMergeSettings(SETTINGS_DEFAULTS, savedSettings || fallbackSettings || {});
-  if (!settings.permissions) settings.permissions = defaultPermissionsV2();
-  settingsBaseline = cloneSettings(settings);
-  cacheSettings(settings);
+  if (savedSettings) settings = savedSettings;
+  else if (!settings.permissions) settings.permissions = defaultPermissionsV2();
  } catch (settingsError) {
-  console.warn('Settings load failed; restoring the last browser backup:', settingsError);
-  settings = deepMergeSettings(SETTINGS_DEFAULTS, cachedSettings() || {});
+  console.warn('Settings load failed; using safe defaults:', settingsError);
   if (!settings.permissions) settings.permissions = defaultPermissionsV2();
-  settingsBaseline = cloneSettings(settings);
  }
  if (failures.length) {
   window.__PROTRACK_LOAD_WARNINGS = failures.map(x => x.table);
@@ -11021,6 +10968,7 @@ async function commitProductionImport(){
  const history=saved.map(e=>({business_key:e.businessKey||importV21EntryKey(e),task_code:importV2Norm(e.taskCode),job_role:e.jobRole,employee_id:e.techId,entry_id:e.id,batch_id:importV2BatchId,excel_row:e.importExcelRow||null,part_number:e.pnum||'',work_date:String(e.time||'').slice(0,10)||null,department:e.department||e.dept||'',hours:Number(e.hours)||0,imported_by:CU.id}));
  if(history.length)await importV21BulkHistory(history);
  saved.forEach(e=>{const key=e.businessKey||importV21EntryKey(e);importV2HistoryKeys.add(key);importV21EntryByKey.set(key,e);entries.unshift(e);});
+ if(saved.length&&typeof window.recordSuccessfulProductionImport==='function')await window.recordSuccessfulProductionImport(saved.length,productionImportState.fileName||'',new Date().toISOString());
  const successfulPreviewIds=new Set([...savedKeys].map(k=>previewIdsByKey.get(k)).filter(Boolean));
  productionImportState.preview=preview.filter(item=>!successfulPreviewIds.has(String(item.id)));
  validateProductionImportPreview();await importV2PersistPreview();
@@ -12989,122 +12937,58 @@ setTimeout(()=>{addEffectiveControls();seedSnapshots();historic();ensureDrawer()
 
 
 <style id="last-production-import-notice-style">
-.last-production-import-notice{display:flex;align-items:center;gap:9px;padding:9px 12px;margin:0 0 12px;border:1px solid rgba(59,130,246,.24);border-radius:10px;background:linear-gradient(135deg,var(--bdim),var(--card));color:var(--tx2);font-size:12px;line-height:1.45;box-shadow:0 2px 8px rgba(0,0,0,.04)}
-.last-production-import-notice .lpi-icon{display:flex;align-items:center;justify-content:center;width:27px;height:27px;flex:0 0 27px;border-radius:8px;background:var(--blue);color:#fff;font-size:13px}
-.last-production-import-notice .lpi-text{min-width:0}.last-production-import-notice .lpi-text b{color:var(--tx);font-weight:800}.last-production-import-notice .lpi-meta{display:block;margin-top:1px;color:var(--tx3);font-size:10.5px}
-.last-production-import-notice.lpi-empty{border-color:var(--bdr);background:var(--card2)}
-@media(max-width:600px){.last-production-import-notice{align-items:flex-start;font-size:11.5px}}
+.last-production-import-notice{display:flex;align-items:center;gap:9px;padding:10px 13px;margin:0 0 14px;border:1px solid rgba(59,130,246,.24);border-left:4px solid var(--blue);border-radius:10px;background:var(--bdim);color:var(--tx2);font-size:12px;line-height:1.45}
+.last-production-import-notice strong{color:var(--tx);font-family:'JetBrains Mono',monospace}.last-production-import-notice .lpi-icon{font-size:15px;flex:0 0 auto}
 </style>
 <script id="last-production-import-notice-script">
 (function(){
  'use strict';
  const TARGET_PAGES=['mystats','allentries','importproduction','dashboard','taskgroups'];
- function formatImportDateGMT(value){
+ let saveChain=Promise.resolve();
+ function formatEthiopiaTime(value){
   if(!value)return '';
   const d=new Date(value);if(Number.isNaN(d.getTime()))return '';
-  const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const day=String(d.getUTCDate()).padStart(2,'0');
-  const month=months[d.getUTCMonth()];
-  const year=d.getUTCFullYear();
-  const hour=String(d.getUTCHours()).padStart(2,'0');
-  const minute=String(d.getUTCMinutes()).padStart(2,'0');
-  return day+'-'+month+'-'+year+' '+hour+':'+minute+' GMT';
+  const parts=new Intl.DateTimeFormat('en-GB',{
+   timeZone:'Africa/Addis_Ababa',day:'2-digit',month:'short',year:'numeric',
+   hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+  }).formatToParts(d).reduce((o,p)=>(o[p.type]=p.value,o),{});
+  return parts.day+'-'+parts.month+'-'+parts.year+' '+parts.hour+':'+parts.minute+' EAT';
  }
- function noticeHtml(){
-  const formatted=formatImportDateGMT(settings?.lastProductionImportAt);
-  if(!formatted){
-   return '<div class="last-production-import-notice lpi-empty" data-last-production-import-notice="1"><span class="lpi-icon">↻</span><div class="lpi-text"><b>No production import date recorded yet.</b><span class="lpi-meta">The date will appear after entries are successfully imported from the Import Production page.</span></div></div>';
-  }
-  const count=Number(settings?.lastProductionImportEntryCount)||0;
-  const file=String(settings?.lastProductionImportFileName||'').trim();
-  const meta=[count?count+' '+(count===1?'entry':'entries')+' imported':'',file?'File: '+file:''].filter(Boolean).join(' · ');
-  return '<div class="last-production-import-notice" data-last-production-import-notice="1"><span class="lpi-icon">↻</span><div class="lpi-text"><b>This data is based on the imported data of '+escapeHtml(formatted)+'.</b>'+(meta?'<span class="lpi-meta">'+escapeHtml(meta)+'</span>':'')+'</div></div>';
- }
- function renderLastProductionImportNotices(){
+ function render(){
+  const formatted=formatEthiopiaTime(settings?.lastProductionImportAt);
   TARGET_PAGES.forEach(pageKey=>{
    const page=document.getElementById('pg-'+pageKey);if(!page)return;
-   page.querySelectorAll('[data-last-production-import-notice="1"]').forEach(el=>el.remove());
-   const wrap=document.createElement('div');wrap.innerHTML=noticeHtml();const notice=wrap.firstElementChild;
-   const first=page.firstElementChild;page.insertBefore(notice,first||null);
+   let notice=page.querySelector(':scope > [data-last-production-import-notice="1"]');
+   if(!notice){notice=document.createElement('div');notice.className='last-production-import-notice';notice.dataset.lastProductionImportNotice='1';notice.setAttribute('role','status');page.insertBefore(notice,page.firstChild)}
+   notice.innerHTML=formatted
+    ? '<span class="lpi-icon">ⓘ</span><span><strong>This data is based on the imported data of '+escapeHtml(formatted)+'.</strong></span>'
+    : '<span class="lpi-icon">ⓘ</span><span>No successful Import Production date has been recorded yet.</span>';
   });
  }
- window.formatLastProductionImportDateGMT=formatImportDateGMT;
- window.renderLastProductionImportNotices=renderLastProductionImportNotices;
- const originalLoadAllData=window.loadAllData||loadAllData;
- if(typeof originalLoadAllData==='function'){
-  loadAllData=async function(){const result=await originalLoadAllData.apply(this,arguments);renderLastProductionImportNotices();return result;};
-  window.loadAllData=loadAllData;
+ async function recordSuccessfulImport(count,fileName,completedAt){
+  const created=Number(count)||0;if(created<1)return false;
+  const iso=completedAt||new Date().toISOString();
+  settings.lastProductionImportAt=iso;
+  settings.lastProductionImportEntryCount=created;
+  if(fileName!==undefined)settings.lastProductionImportFileName=String(fileName||'');
+  render();
+  saveChain=saveChain.catch(()=>{}).then(()=>DB.saveSettings(settings));
+  try{await saveChain;return true}catch(e){console.error('Last successful Import Production timestamp could not be saved:',e);toast('Entries were imported, but the import timestamp could not be saved: '+(e?.message||e),'error');return false}
  }
- const renderNames=['renderMyStats','renderDashboard','renderAllEntries','renderImportProduction','renderTaskGroups'];
- renderNames.forEach(name=>{
-  const original=window[name];if(typeof original!=='function')return;
-  const enhanced=function(){const result=original.apply(this,arguments);setTimeout(renderLastProductionImportNotices,0);return result;};
-  window[name]=enhanced;
-  try{if(name==='renderMyStats')renderMyStats=enhanced;else if(name==='renderDashboard')renderDashboard=enhanced;else if(name==='renderAllEntries')renderAllEntries=enhanced;else if(name==='renderImportProduction')renderImportProduction=enhanced;else if(name==='renderTaskGroups')renderTaskGroups=enhanced;}catch(e){}
- });
- const observer=new MutationObserver(()=>{clearTimeout(observer._t);observer._t=setTimeout(renderLastProductionImportNotices,80)});
- observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
- setTimeout(renderLastProductionImportNotices,900);
-})();
-</script>
-
-
-<style id="pt-last-import-date-style">
-.pt-data-basis{display:flex;align-items:center;gap:9px;padding:10px 13px;margin:0 0 14px;border:1px solid rgba(59,130,246,.24);border-left:4px solid var(--blue);border-radius:10px;background:var(--bdim);color:var(--tx2);font-size:12px;line-height:1.45}
-.pt-data-basis strong{color:var(--tx);font-family:'JetBrains Mono',monospace}.pt-data-basis-icon{font-size:15px;flex:0 0 auto}
-</style>
-<script id="pt-last-import-date-script">
-(function(){
- 'use strict';
- const TARGET_PAGES=['mystats','allentries','importproduction','dashboard','taskgroups'];
- let saveTimer=null;
- function importedEntry(e){return !!e&&(e.importedSource==='ComponentTATStatus'||e.importBatchId||e.importExcelRow);}
- function utcText(value){
-  const d=new Date(value);if(!value||Number.isNaN(d.getTime()))return '';
-  const day=String(d.getUTCDate()).padStart(2,'0');
-  const mon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
-  return day+'-'+mon+'-'+d.getUTCFullYear()+' '+String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0')+' GMT';
- }
- function latestStored(){
-  const direct=settings.lastProductionImportAt;
-  const completions=Array.isArray(settings.importProductionCompletions)?settings.importProductionCompletions:[];
-  const completion=completions.map(x=>x?.completedAt).filter(Boolean).sort().pop();
-  const imported=(Array.isArray(entries)?entries:[]).filter(importedEntry).map(e=>e.importCompletedAt||e.importedAt||e.created_at||e.updated_at).filter(Boolean).sort().pop();
-  return [direct,completion,imported].filter(Boolean).sort().pop()||'';
- }
- function banner(page){
-  const host=document.getElementById('pg-'+page);if(!host)return;
-  let el=host.querySelector(':scope > .pt-data-basis');
-  if(!el){el=document.createElement('div');el.className='pt-data-basis';el.setAttribute('role','status');host.insertBefore(el,host.firstChild)}
-  const last=latestStored(),formatted=utcText(last);
-  el.innerHTML=formatted?'<span class="pt-data-basis-icon">ⓘ</span><span>This data is based on the imported data of <strong>'+escapeHtml(formatted)+'</strong>.</span>':'<span class="pt-data-basis-icon">ⓘ</span><span>No successful Import Production date has been recorded yet.</span>';
- }
- function renderAll(){TARGET_PAGES.forEach(banner)}
- function saveLastImport(iso){
-  if(!iso)return;settings.lastProductionImportAt=iso;
-  clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{try{await DB.saveSettings(settings)}catch(e){console.warn('Last import date save failed:',e)}},180);
-  renderAll();
- }
- window.setLastProductionImportDate=function(value){saveLastImport(value||new Date().toISOString())};
- window.renderLastProductionImportDate=renderAll;
- // Capture every successfully created imported entry. This covers all Import Production commit paths.
- const previousUpsert=DB.upsert.bind(DB);
+ window.recordSuccessfulProductionImport=recordSuccessfulImport;
+ window.setLastProductionImportDate=function(value){return recordSuccessfulImport(1,settings.lastProductionImportFileName,value||new Date().toISOString())};
+ window.renderLastProductionImportNotices=render;
+ const priorUpsert=DB.upsert.bind(DB);
  DB.upsert=async function(table,row){
-  const isImported=table==='entries'&&importedEntry(row)&&!row?.id;
-  const payload=isImported?{...row,importCompletedAt:new Date().toISOString()}:row;
-  const saved=await previousUpsert(table,payload);
-  if(isImported)saveLastImport(saved.importCompletedAt||payload.importCompletedAt);
+  const isNewImportedEntry=table==='entries'&&!row?.id&&row?.importedSource==='ComponentTATStatus';
+  const saved=await priorUpsert(table,row);
+  if(isNewImportedEntry)await recordSuccessfulImport(1,productionImportState?.fileName||'');
   return saved;
  };
- // If this file already contains older imported records, recover the latest reliable timestamp once.
- setTimeout(()=>{
-  if(!settings.lastProductionImportAt){const recovered=latestStored();if(recovered)saveLastImport(recovered)}
-  renderAll();
- },1500);
- const observer=new MutationObserver(()=>{clearTimeout(observer.t);observer.t=setTimeout(renderAll,70)});
+ const observer=new MutationObserver(()=>{clearTimeout(observer._t);observer._t=setTimeout(render,80)});
  observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
+ setTimeout(render,900);
 })();
 </script>
-
 </body>
 </html>
