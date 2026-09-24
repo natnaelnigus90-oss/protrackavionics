@@ -2707,8 +2707,8 @@ let departments = [];
 let shopPerf = []; // {id, dept, weekStart, sdt:[5], scrap:[5], comment, updatedBy, updatedAt}
 let appUsers = [];
 const SETTINGS_DEFAULTS={defaultMonthlyTarget:160,passwords:{},permissions:null,shopReportComments:{}};
-const IS_ONLINE_WEB_APP=location.protocol==='https:'||location.protocol==='http:';
-const SETTINGS_CACHE_KEY='protrack.permanent.settings.v4';
+const IS_ONLINE_WEB_APP=location.protocol==='https:'&&!['localhost','127.0.0.1','::1'].includes(location.hostname);
+const SETTINGS_CACHE_KEY='protrack.permanent.settings.v4'; // legacy key; database is authoritative
 function requireOnlineSettingsChange(){
  if(IS_ONLINE_WEB_APP)return true;
  toast('Settings can only be changed permanently from the online web app. Local-file changes are blocked.','error');
@@ -2717,12 +2717,13 @@ function requireOnlineSettingsChange(){
 let settings=structuredClone(SETTINGS_DEFAULTS),settingsSaveQueue=Promise.resolve();
 function cloneSetting(v){try{return structuredClone(v)}catch(_){return JSON.parse(JSON.stringify(v))}}
 function mergeSetting(a,b){const o=cloneSetting(a||{});if(!b||typeof b!=='object'||Array.isArray(b))return o;Object.keys(b).forEach(k=>{const v=b[k];o[k]=(v&&typeof v==='object'&&!Array.isArray(v)&&o[k]&&typeof o[k]==='object'&&!Array.isArray(o[k]))?mergeSetting(o[k],v):cloneSetting(v)});return o}
-function readSettingsCache(){if(!IS_ONLINE_WEB_APP)return null;try{return JSON.parse(localStorage.getItem(SETTINGS_CACHE_KEY)||'null')}catch(_){return null}}
-function writeSettingsCache(v){if(!IS_ONLINE_WEB_APP)return false;try{localStorage.setItem(SETTINGS_CACHE_KEY,JSON.stringify(v));return true}catch(e){console.warn(e);return false}}
+// Application settings are database-only. These legacy helpers deliberately never read or write browser storage.
+function readSettingsCache(){return null}
+function writeSettingsCache(_value){return false}
 const RATIO_CACHE_KEY='protrack.hour.ratios.permanent.v1';
 const IMPORT_TIME_CACHE_KEY='protrack.last.import.time.permanent.v1';
-function readPermanentItem(key){if(!IS_ONLINE_WEB_APP)return null;try{return JSON.parse(localStorage.getItem(key)||'null')}catch(_){return null}}
-function writePermanentItem(key,value){if(!IS_ONLINE_WEB_APP)return false;try{localStorage.setItem(key,JSON.stringify(value));return true}catch(e){console.warn('Permanent local save failed:',e);return false}}
+function readPermanentItem(_key){return null}
+function writePermanentItem(_key,_value){return false}
 let profilePics = {};
 let selJobRole = 'Technician', selJobRoleIdx = 0;
 let selectedPartsByPrefix = { e: null, le: null };
@@ -2780,18 +2781,20 @@ const DB = {
  // The latest append-only snapshot is authoritative. No default/global row may overwrite it.
  const {data:snapshots,error:snapshotError}=await sb.from('app_settings').select('key,value').like('key','settings_snapshot:%').order('key',{ascending:false}).limit(1);
  if(snapshotError)throw snapshotError;
- if(snapshots?.[0]?.value)return mergeSetting(SETTINGS_DEFAULTS,snapshots[0].value);
+ if(snapshots?.[0]?.value){const loaded=mergeSetting(SETTINGS_DEFAULTS,snapshots[0].value);loaded._settingsStorage='supabase-database-only';return loaded;}
  // One-time compatibility fallback for installations that only have the old global row.
  const {data:legacy,error:legacyError}=await sb.from('app_settings').select('value').eq('key','global').maybeSingle();
  if(legacyError)throw legacyError;
- return mergeSetting(SETTINGS_DEFAULTS,legacy?.value||{});
+ const loaded=mergeSetting(SETTINGS_DEFAULTS,legacy?.value||{});loaded._settingsStorage='supabase-database-only';return loaded;
  },
  async saveSettings(obj) {
  if(!IS_ONLINE_WEB_APP)throw new Error('Permanent settings changes are blocked in local-file mode. Use the online web app.');
  const snapshot=cloneSetting(obj||{});
  const savedAt=new Date().toISOString();
  snapshot._settingsUpdatedAt=savedAt;
+ snapshot._settingsStorage='supabase-database-only';
  settings._settingsUpdatedAt=savedAt;
+ settings._settingsStorage='supabase-database-only';
  // Append a new row instead of updating an existing row. This prevents an older request,
  // another browser, action-history autosave, or restrictive UPDATE policy from resetting settings.
  const key='settings_snapshot:'+savedAt+':'+Math.random().toString(36).slice(2,10);
@@ -2805,8 +2808,8 @@ const DB = {
  sb.from('app_settings').upsert({key:'global',value:snapshot},{onConflict:'key'}).then(({error})=>{if(error)console.warn('Legacy global settings update skipped:',error)});
  return true;
  }};
-async function persistSettings(){if(!requireOnlineSettingsChange())throw new Error('Online web app required');try{const ok=await DB.saveSettings(settings);return ok}catch(e){console.error('Permanent settings save failed:',e);toast('Permanent save failed: '+(e?.message||e),'error');throw e}}
-window.addEventListener('pagehide',()=>writeSettingsCache(settings));
+async function persistSettings(){if(!requireOnlineSettingsChange())throw new Error('Online web app required');if(!sb)throw new Error('Supabase is not connected. Check the URL and publishable key.');try{const ok=await DB.saveSettings(settings);return ok}catch(e){console.error('Permanent settings save failed:',e);toast('Permanent save failed: '+(e?.message||e),'error');throw e}}
+// No settings are written to localStorage/sessionStorage on page exit.
 
 // ────────────────────────────────────────────────
 // SUPABASE BOOTSTRAP
