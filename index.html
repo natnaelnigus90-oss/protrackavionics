@@ -2776,29 +2776,43 @@ const DB = {
  if(error)throw error;return true;
  },
  async getSettings() {
- const local=readSettingsCache();let remote=null;
- try{const {data,error}=await sb.from('app_settings').select('value').eq('key','global').maybeSingle();if(error)throw error;remote=data?.value||null}catch(error){if(!local)throw error;console.warn('Using local settings backup:',error)}
- const lv=Date.parse(local?._settingsUpdatedAt||'')||0,rv=Date.parse(remote?._settingsUpdatedAt||'')||0;
- let loaded=mergeSetting(SETTINGS_DEFAULTS,lv>rv?local:(remote||local||{}));
- // Ratios and import time are also stored independently so no global-settings overwrite can reset them.
- const localRatio=readPermanentItem(RATIO_CACHE_KEY),localImport=readPermanentItem(IMPORT_TIME_CACHE_KEY);
- try{const [dbRatio,dbImport]=await Promise.all([this.getSettingKey('permanent:hour-ratios'),this.getSettingKey('permanent:last-import-time')]);
-  const ratio=dbRatio||localRatio;if(ratio){loaded.ratios=ratio.ratios||ratio;loaded.ratioHistory=ratio.ratioHistory||loaded.ratioHistory;loaded.partRatios=ratio.partRatios||loaded.partRatios;loaded.scrapDefaultHrs=ratio.scrapDefaultHrs??loaded.scrapDefaultHrs;writePermanentItem(RATIO_CACHE_KEY,ratio)}
-  const imp=dbImport||localImport;if(imp?.lastProductionImportAt){loaded.lastProductionImportAt=imp.lastProductionImportAt;loaded.lastProductionImportEntryCount=imp.lastProductionImportEntryCount||0;loaded.lastProductionImportFileName=imp.lastProductionImportFileName||'';writePermanentItem(IMPORT_TIME_CACHE_KEY,imp)}
- }catch(e){console.warn('Dedicated permanent settings load used local backup:',e);if(localRatio){loaded.ratios=localRatio.ratios||localRatio;loaded.ratioHistory=localRatio.ratioHistory||loaded.ratioHistory}if(localImport?.lastProductionImportAt)loaded.lastProductionImportAt=localImport.lastProductionImportAt}
- writeSettingsCache(loaded);return loaded;
+ if(!IS_ONLINE_WEB_APP)return mergeSetting(SETTINGS_DEFAULTS,{});
+ const {data:globalRow,error:globalError}=await sb.from('app_settings').select('value').eq('key','global').maybeSingle();
+ if(globalError)throw globalError;
+ const {data:sectionRows,error:sectionError}=await sb.from('app_settings').select('key,value').like('key','setting:%');
+ if(sectionError)throw sectionError;
+ let loaded=mergeSetting(SETTINGS_DEFAULTS,globalRow?.value||{});
+ (sectionRows||[]).forEach(row=>{const name=String(row.key||'').slice(8);if(name)loaded[name]=cloneSetting(row.value)});
+ // Dedicated critical records win over the shared/global object.
+ const [ratio,importTime,permissions]=await Promise.all([
+  this.getSettingKey('permanent:hour-ratios'),
+  this.getSettingKey('permanent:last-import-time'),
+  this.getSettingKey('permanent:permissions')
+ ]);
+ if(ratio){loaded.ratios=ratio.ratios||ratio;loaded.ratioHistory=ratio.ratioHistory||loaded.ratioHistory;loaded.partRatios=ratio.partRatios||loaded.partRatios;loaded.scrapDefaultHrs=ratio.scrapDefaultHrs??loaded.scrapDefaultHrs}
+ if(importTime?.lastProductionImportAt){loaded.lastProductionImportAt=importTime.lastProductionImportAt;loaded.lastProductionImportEntryCount=importTime.lastProductionImportEntryCount||0;loaded.lastProductionImportFileName=importTime.lastProductionImportFileName||''}
+ if(permissions&&typeof permissions==='object')loaded.permissions=permissions;
+ return loaded;
  },
  async saveSettings(obj) {
  if(!IS_ONLINE_WEB_APP)throw new Error('Permanent settings changes are blocked in local-file mode. Use the online web app.');
- const snapshot=cloneSetting(obj||{});snapshot._settingsUpdatedAt=new Date().toISOString();
- settings._settingsUpdatedAt=snapshot._settingsUpdatedAt;writeSettingsCache(snapshot);
+ const snapshot=cloneSetting(obj||{});snapshot._settingsUpdatedAt=new Date().toISOString();settings._settingsUpdatedAt=snapshot._settingsUpdatedAt;
  settingsSaveQueue=settingsSaveQueue.catch(()=>{}).then(async()=>{
-  const {error}=await sb.from('app_settings').upsert({key:'global',value:snapshot},{onConflict:'key'});if(error)throw error;writeSettingsCache(snapshot);return true;
+  // Store every top-level setting independently. A later code deployment or partial save
+  // cannot reset unrelated settings back to defaults.
+  const sectionRows=Object.entries(snapshot).map(([name,value])=>({key:'setting:'+name,value:cloneSetting(value)}));
+  if(sectionRows.length){const {error:sectionError}=await sb.from('app_settings').upsert(sectionRows,{onConflict:'key'});if(sectionError)throw sectionError}
+  const critical=[];
+  if(snapshot.permissions)critical.push({key:'permanent:permissions',value:cloneSetting(snapshot.permissions)});
+  if(snapshot.ratios||snapshot.ratioHistory||snapshot.partRatios||snapshot.scrapDefaultHrs!==undefined)critical.push({key:'permanent:hour-ratios',value:{ratios:cloneSetting(snapshot.ratios||{}),ratioHistory:cloneSetting(snapshot.ratioHistory||{}),partRatios:cloneSetting(snapshot.partRatios||{}),scrapDefaultHrs:snapshot.scrapDefaultHrs,updatedAt:snapshot._settingsUpdatedAt}});
+  if(snapshot.lastProductionImportAt)critical.push({key:'permanent:last-import-time',value:{lastProductionImportAt:snapshot.lastProductionImportAt,lastProductionImportEntryCount:snapshot.lastProductionImportEntryCount||0,lastProductionImportFileName:snapshot.lastProductionImportFileName||'',updatedAt:snapshot._settingsUpdatedAt}});
+  if(critical.length){const {error:criticalError}=await sb.from('app_settings').upsert(critical,{onConflict:'key'});if(criticalError)throw criticalError}
+  const {error:globalError}=await sb.from('app_settings').upsert({key:'global',value:snapshot},{onConflict:'key'});if(globalError)throw globalError;
+  return true;
  });
  return settingsSaveQueue;
- }
-};
-async function persistSettings(){try{return await DB.saveSettings(settings)}catch(e){console.error('Settings save failed:',e);toast('Setting could not be saved to database: '+(e?.message||e),'error');throw e}}
+ }};
+async function persistSettings(){if(!requireOnlineSettingsChange())throw new Error('Online web app required');try{return await DB.saveSettings(settings)}catch(e){console.error('Settings save failed:',e);toast('Setting could not be saved to database: '+(e?.message||e),'error');throw e}}
 window.addEventListener('pagehide',()=>writeSettingsCache(settings));
 
 // ────────────────────────────────────────────────
@@ -3278,10 +3292,19 @@ window.revokeAllPermRole = function () {
  getPermissions()[permActiveRole] = {};
  renderPermissionsPage(); toast('All permissions revoked (not yet saved)', 'warn');
 };
-window.savePermissions = async function () {
- await persistSettings();
- toast('Permissions saved');
- if (CU) { buildNav(); applyPermVisibility(); }
+window.savePermissions=async function(){
+ if(!requireOnlineSettingsChange())return;
+ const value=cloneSetting(getPermissions());
+ try{
+  await DB.saveSettingKey('permanent:permissions',value);
+  settings.permissions=value;
+  await persistSettings();
+  const verified=await DB.getSettingKey('permanent:permissions');
+  if(!verified)throw new Error('Permission verification failed after save.');
+  settings.permissions=cloneSetting(verified);
+  toast('Permissions saved permanently');
+  if(CU){buildNav();applyPermVisibility()}
+ }catch(e){console.error(e);toast('Permissions were not saved: '+(e?.message||e),'error')}
 };
 
 // Generic enforcement: any element tagged data-perm="pageKey:action" is shown/enabled only
@@ -6650,9 +6673,9 @@ async function loadAllData() {
  departments = loaded.departments.length ? loaded.departments : DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
  // Do not block login if one optional table is missing or restricted. Creating defaults can be done after login.
  try {
-  const savedSettings=await DB.getSettings();settings=mergeSetting(SETTINGS_DEFAULTS,savedSettings||readSettingsCache()||{});
-  if(!settings.permissions)settings.permissions=defaultPermissionsV2();writeSettingsCache(settings);
- }catch(settingsError){console.warn('Settings load failed; restored browser backup:',settingsError);settings=mergeSetting(SETTINGS_DEFAULTS,readSettingsCache()||{});if(!settings.permissions)settings.permissions=defaultPermissionsV2()}
+  const savedSettings=await DB.getSettings();settings=mergeSetting(SETTINGS_DEFAULTS,savedSettings||{});
+  if(!settings.permissions)settings.permissions=defaultPermissionsV2();
+ }catch(settingsError){console.warn('Online settings load failed:',settingsError);settings=mergeSetting(SETTINGS_DEFAULTS,{});if(!settings.permissions)settings.permissions=defaultPermissionsV2();toast('Permanent settings could not be loaded from the online database.','error')}
  if (failures.length) {
   window.__PROTRACK_LOAD_WARNINGS = failures.map(x => x.table);
  } else window.__PROTRACK_LOAD_WARNINGS = [];
