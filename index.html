@@ -2779,26 +2779,42 @@ const DB = {
  async getSettings() {
   if(!IS_ONLINE_WEB_APP)return mergeSetting(SETTINGS_DEFAULTS,{});
   if(!sb)throw new Error('Supabase is not connected.');
-  const {data,error}=await sb.from('app_settings').select('value,updated_at').eq('key','global').maybeSingle();
+  const {data,error}=await sb.from('protrack_runtime_settings').select('payload,revision').eq('id',1).single();
   if(error)throw error;
-  const loaded=mergeSetting(SETTINGS_DEFAULTS,data?.value||{});
-  loaded._settingsStorage='supabase-global-row';
+  if(!data||!data.payload)throw new Error('Permanent settings row id=1 is missing. Run the V20 SQL setup.');
+  const loaded=mergeSetting(SETTINGS_DEFAULTS,data.payload);
+  loaded._settingsStorage='protrack-runtime-settings';
+  loaded._settingsRevision=Number(data.revision||0);
   return loaded;
  },
  async saveSettings(obj) {
   if(!IS_ONLINE_WEB_APP)throw new Error('Permanent settings changes are blocked in local-file mode. Use the online web app.');
   if(!sb)throw new Error('Supabase is not connected.');
-  const snapshot=cloneSetting(obj||{});
+  const payload=cloneSetting(obj||{});
   const savedAt=new Date().toISOString();
-  snapshot._settingsUpdatedAt=savedAt;
-  snapshot._settingsStorage='supabase-global-row';
-  const {data,error}=await sb.from('app_settings').upsert({key:'global',value:snapshot},{onConflict:'key'}).select('key,value,updated_at').single();
+  payload._settingsUpdatedAt=savedAt;
+  payload._settingsStorage='protrack-runtime-settings';
+  delete payload._settingsRevision;
+  const {data,error}=await sb.rpc('save_protrack_runtime_settings',{new_payload:payload});
   if(error)throw error;
-  if(data?.key!=='global'||data?.value?._settingsUpdatedAt!==savedAt)throw new Error('Database verification failed after saving settings.');
+  const row=Array.isArray(data)?data[0]:data;
+  if(!row||row.saved_at!==savedAt)throw new Error('Database verification failed after saving permanent settings.');
+  const verified=await sb.from('protrack_runtime_settings').select('payload,revision').eq('id',1).single();
+  if(verified.error)throw verified.error;
+  if(verified.data?.payload?._settingsUpdatedAt!==savedAt)throw new Error('Saved settings could not be read back from the dedicated database table.');
   settings._settingsUpdatedAt=savedAt;
-  settings._settingsStorage='supabase-global-row';
+  settings._settingsStorage='protrack-runtime-settings';
+  settings._settingsRevision=Number(verified.data.revision||row.revision||0);
   return true;
  }
+};
+window.verifyPermanentSettingsDatabase=async function(){
+ if(!sb)initSupabase();
+ const {data,error}=await sb.from('protrack_runtime_settings').select('id,payload,revision,updated_at').eq('id',1).single();
+ if(error){console.error('Permanent settings verification failed:',error);toast('Database verification failed: '+(error.message||error),'error');return null;}
+ console.log('Permanent settings database row:',data);
+ toast('Database settings verified. Revision '+Number(data.revision||0));
+ return data;
 };
 async function persistSettings(){if(!requireOnlineSettingsChange())throw new Error('Online web app required');if(!sb)throw new Error('Supabase is not connected. Check the URL and publishable key.');const snapshot=cloneSetting(settings);settingsSaveQueue=settingsSaveQueue.catch(()=>{}).then(()=>DB.saveSettings(snapshot));try{return await settingsSaveQueue}catch(e){console.error('Permanent settings save failed:',e);toast('Permanent save failed: '+(e?.message||e),'error');throw e}}
 // No settings are written to localStorage/sessionStorage on page exit.
