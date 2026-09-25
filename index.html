@@ -4460,7 +4460,7 @@ window.delManager = async function (id) { if (!confirm('Delete?')) return; await
 // ════════════════════════════════════════════════
 function renderRatios() {
  const sdh = document.getElementById('scrap-default-hrs'); if (sdh) sdh.value = settings.scrapDefaultHrs || 2;
- const r = getDefR();
+ const r = settings.ratios || getDefR();
  sv('r-tech', r.tech); sv('r-sup', r.sup); sv('rs-tech', r.tech); sv('rs-sup', r.sup); sv('r-insp-hrs', r.inspHrs || 1); sv('r-prelim-hrs', r.prelimHrs || 1);
  onRI(); renderOvList();
 }
@@ -12976,23 +12976,30 @@ function addEffectiveControls(){
  const modal=document.getElementById('m-override');if(modal&&!document.getElementById('mro-effective-date')){const foot=modal.querySelector('.mfoot');const row=document.createElement('div');row.className='pt-effective-row';row.style.margin='0 20px 10px';row.innerHTML='<div class="fgroup"><label class="flabel">Override Effective From</label><input class="finput" type="date" id="mro-effective-date"></div><div class="pt-effective-note">This part-number ratio starts from the selected date.</div>';foot?.insertAdjacentElement('beforebegin',row);sv('mro-effective-date',today())}
  const scrap=document.getElementById('scrap-default-hrs');if(scrap&&!document.getElementById('scrap-effective-date')){const d=document.createElement('input');d.id='scrap-effective-date';d.type='date';d.className='ratio-input';d.style.width='145px';d.value=today();scrap.insertAdjacentElement('afterend',d)}
 }
-const oldRenderRatios=window.renderRatios;window.renderRatios=function(){addEffectiveControls();const r=oldRenderRatios.apply(this,arguments);sv('ratio-effective-date',today());return r};
+const oldRenderRatios=window.renderRatios;window.renderRatios=function(){addEffectiveControls();const r=oldRenderRatios.apply(this,arguments);sv('ratio-effective-date',settings.ratios?.effectiveDate||today());return r};
 const oldOpenOverride=window.openAddOverride;window.openAddOverride=function(){addEffectiveControls();const r=oldOpenOverride.apply(this,arguments);sv('mro-effective-date',today());return r};
 window.saveDefaultRatios=async function(){
  if(!requireOnlineSettingsChange())return;
  if(!canI('ratios','edit')){toast('Not allowed','error');return;}
- const tech=gv('r-tech'),sup=gv('r-sup');
+ const tech=Number(gv('r-tech')),sup=Number(gv('r-sup'));
  if(tech+sup<=0){toast('Ratio total must be greater than 0','error');return;}
- const value={tech,sup,inspHrs:gv('r-insp-hrs'),prelimHrs:gv('r-prelim-hrs')};
+ const effectiveDate=document.getElementById('ratio-effective-date')?.value||today();
+ const value={tech,sup,inspHrs:Number(gv('r-insp-hrs')),prelimHrs:Number(gv('r-prelim-hrs')),effectiveDate};
  settings.ratios=cloneSetting(value);
+ settings.ratioHistory ||= {defaults:[],parts:{},scrap:[]};
+ settings.ratioHistory.defaults=(settings.ratioHistory.defaults||[]).filter(x=>x.effectiveDate!==effectiveDate);
+ settings.ratioHistory.defaults.push({effectiveDate,value:cloneSetting(value),changedAt:new Date().toISOString(),changedBy:actor().id});
  try{
   await persistSettings();
   const confirmed=await DB.getSettings();
-  if(JSON.stringify(confirmed.ratios)!==JSON.stringify(value))throw new Error('Database read-back does not match the values entered.');
-  settings.ratios=cloneSetting(confirmed.ratios);
+  const db=confirmed?.ratios||{};
+  const matches=Number(db.tech)===tech&&Number(db.sup)===sup&&Number(db.inspHrs)===value.inspHrs&&Number(db.prelimHrs)===value.prelimHrs&&String(db.effectiveDate||'')===effectiveDate;
+  if(!matches){console.error('Entered ratio:',value,'Database ratio:',db);throw new Error('Database read-back mismatch. See entered and database values in Console.');}
+  settings.ratios=cloneSetting(db);
+  settings.ratioHistory=cloneSetting(confirmed.ratioHistory||settings.ratioHistory);
   renderRatios();
-  record('app_settings','edit',null,value,'Current default hour ratios saved to the dedicated database table.');
-  toast('Default ratios saved and verified in database');
+  record('app_settings','edit',null,value,'Default hour ratios effective '+effectiveDate+' saved to the dedicated database table.');
+  toast('Ratios and effective date saved and verified in database');
  }catch(e){console.error('Ratio database save failed:',e);toast('Database save failed: '+(e?.message||e),'error');}
 };
 window.saveOverride=async function(){if(!canI('ratios','edit')){toast('Not allowed','error');return}let pnum=(document.getElementById('mro-pnum')?.value||'').trim();if(!pnum)pnum=(document.getElementById('mro-sel-num')?.textContent||'').trim();if(!pnum){const typed=(document.getElementById('mro-part-search')?.value||'').trim(),exact=(parts||[]).find(p=>String(p.num||'').trim().toLowerCase()===typed.toLowerCase());if(exact)pnum=String(exact.num||'').trim()}const tech=gv('mro-tech'),sup=gv('mro-sup'),value={tech,sup,inspHrs:gv('mro-insp'),prelimHrs:gv('mro-prelim'),note:document.getElementById('mro-note')?.value.trim()||''},effectiveDate=document.getElementById('mro-effective-date')?.value||today();if(!pnum){toast('Select a part from the search result','error');return}const before=getRatioForPart(pnum,effectiveDate);ratioHist().parts[pnum] ||= [];ratioHist().parts[pnum]=ratioHist().parts[pnum].filter(x=>x.effectiveDate!==effectiveDate);ratioHist().parts[pnum].push({effectiveDate,value,changedAt:new Date().toISOString(),changedBy:actor().id});settings.partRatios ||= {};settings.partRatios[pnum]=getRatioForPart(pnum,today());await persistSettings();record('app_settings','edit',before,value,'Hour-ratio override for part “'+pnum+'” effective '+effectiveDate+': '+detail('app_settings','edit',before,value));closeModal('m-override');renderOvList();toast('Override saved from '+effectiveDate)};
