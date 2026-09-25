@@ -2816,6 +2816,7 @@ window.verifyPermanentSettingsDatabase=async function(){
  toast('Database settings verified. Revision '+Number(data.revision||0));
  return data;
 };
+window.reloadPermanentSettings=async function(showMessage=true){const fresh=await DB.getSettings();const hydrated=mergeSetting(SETTINGS_DEFAULTS,fresh||{});Object.keys(settings).forEach(k=>delete settings[k]);Object.assign(settings,hydrated);if(!settings.permissions)settings.permissions=defaultPermissionsV2();if(showMessage)toast('Permanent settings reloaded from database. Revision '+Number(settings._settingsRevision||0));return settings;};
 async function persistSettings(){if(!requireOnlineSettingsChange())throw new Error('Online web app required');if(!sb)throw new Error('Supabase is not connected. Check the URL and publishable key.');const snapshot=cloneSetting(settings);settingsSaveQueue=settingsSaveQueue.catch(()=>{}).then(()=>DB.saveSettings(snapshot));try{return await settingsSaveQueue}catch(e){console.error('Permanent settings save failed:',e);toast('Permanent save failed: '+(e?.message||e),'error');throw e}}
 // No settings are written to localStorage/sessionStorage on page exit.
 
@@ -6492,7 +6493,7 @@ window.navTo = function (page) {
  if (page === 'allentries') { populateTechFilter(); if (!document.getElementById('ae-dt-from')?.value) applyAEPreset('today'); else renderAllEntries(); }
  if (page === 'importproduction') renderImportProduction();
  if (page === 'reports') { if (!document.getElementById('rpt-dt-from')?.value) setUIRange('rpt', 'month'); renderReports(); }
- if (page === 'ratios') renderRatios();
+ if (page === 'ratios') { renderRatios(); reloadPermanentSettings(false).then(()=>renderRatios()).catch(e=>toast('Could not reload Hour Ratio settings: '+(e?.message||e),'error')); }
  if (page === 'taskgroups') { if (!document.getElementById('tc-dt-from')?.value) applyTCPreset('today'); else renderTG(); }
  if (page === 'techs') renderTechs();
  if (page === 'parts') renderParts();
@@ -6669,7 +6670,7 @@ async function loadAllData() {
  departments = loaded.departments.length ? loaded.departments : DEFAULT_DEPARTMENTS.map(d => ({ ...d }));
  // Do not block login if one optional table is missing or restricted. Creating defaults can be done after login.
  try {
-  const savedSettings=await DB.getSettings();settings=mergeSetting(SETTINGS_DEFAULTS,savedSettings||{});
+  const savedSettings=await DB.getSettings();const hydrated=mergeSetting(SETTINGS_DEFAULTS,savedSettings||{});Object.keys(settings).forEach(k=>delete settings[k]);Object.assign(settings,hydrated);window.__PROTRACK_SETTINGS_LOADED=true;
   if(!settings.permissions)settings.permissions=defaultPermissionsV2();
  }catch(settingsError){console.error('Permanent online settings load failed:',settingsError);settings=mergeSetting(SETTINGS_DEFAULTS,{});if(!settings.permissions)settings.permissions=defaultPermissionsV2();toast('Could not load permanent settings from database: '+(settingsError?.message||settingsError),'error')}
  if (failures.length) {
@@ -12968,8 +12969,8 @@ function today(){return todayEAT()}
 function ratioHist(){if(!settings.ratioHistory||typeof settings.ratioHistory!=='object')settings.ratioHistory={defaults:[],parts:{},scrap:[]};settings.ratioHistory.defaults ||= [];settings.ratioHistory.parts ||= {};settings.ratioHistory.scrap ||= [];return settings.ratioHistory}
 function activeVersion(arr,date,fallback){const d=String(date||today()).slice(0,10);let v=fallback;(arr||[]).slice().sort((a,b)=>String(a.effectiveDate).localeCompare(String(b.effectiveDate))).forEach(x=>{if(x.effectiveDate<=d)v=x.value});return v}
 const originalGetDefR=getDefR,originalGetRatioForPart=getRatioForPart;
-getDefR=function(date){return activeVersion(ratioHist().defaults,date,settings.ratios||originalGetDefR())};
-getRatioForPart=function(partNum,date){const fallback=(settings.partRatios||{})[partNum]||getDefR(date);return activeVersion(ratioHist().parts[partNum],date,fallback)};
+getDefR=function(_date){return cloneSetting(settings.ratios||originalGetDefR())};
+getRatioForPart=function(partNum,_date){return cloneSetting((settings.partRatios||{})[partNum]||getDefR())};
 function addEffectiveControls(){
  const page=document.getElementById('pg-ratios');if(page&&!document.getElementById('ratio-effective-date')){const first=page.querySelector('.card');const row=document.createElement('div');row.className='pt-effective-row';row.innerHTML='<div class="fgroup"><label class="flabel">Default Ratio Effective From</label><input class="finput" type="date" id="ratio-effective-date"></div><div class="pt-effective-note">New default ratios apply only to entries dated on or after this date.</div>';first?.insertAdjacentElement('beforebegin',row);sv('ratio-effective-date',today())}
  const modal=document.getElementById('m-override');if(modal&&!document.getElementById('mro-effective-date')){const foot=modal.querySelector('.mfoot');const row=document.createElement('div');row.className='pt-effective-row';row.style.margin='0 20px 10px';row.innerHTML='<div class="fgroup"><label class="flabel">Override Effective From</label><input class="finput" type="date" id="mro-effective-date"></div><div class="pt-effective-note">This part-number ratio starts from the selected date.</div>';foot?.insertAdjacentElement('beforebegin',row);sv('mro-effective-date',today())}
