@@ -2791,6 +2791,9 @@ const DB = {
   if(!IS_ONLINE_WEB_APP)throw new Error('Permanent settings changes are blocked in local-file mode. Use the online web app.');
   if(!sb)throw new Error('Supabase is not connected.');
   const payload=cloneSetting(obj||{});
+  delete payload.actionHistory;
+  delete payload.actionHistoryBaselineV4;
+  delete payload.actionSnapshots;
   const savedAt=new Date().toISOString();
   payload._settingsUpdatedAt=savedAt;
   payload._settingsStorage='protrack-runtime-settings';
@@ -12945,7 +12948,7 @@ if(typeof oldToast==='function')window.toast=function(message,type){return oldTo
 </style>
 <script id="pt-v4-script">
 (function(){'use strict';
-const MAX_LOGS=5000;
+const MAX_LOGS=500;
 const RELATED={entries:['entry','allentries','dashboard','reports','taskgroups','mystats','controllerentry','importproduction'],technicians:['techs','dashboard','reports','assignments','task-assignment-board','componentanalytics','operational-performance'],parts:['parts','entry','controllerentry','allentries','reports','taskgroups','importproduction','componentanalytics','analytics-configuration'],leaders:['leaders','assignments','taskgroups'],controllers:['controllers','controllerentry','allentries'],managers:['managers','shopreport','dashboard'],departments:['departments','techs','parts','leaders','controllers','managers','shopperformance','shopreport'],assignments:['assignments','dashboard','reports','taskgroups','mystats'],shop_performance:['shopperformance','shopreport','dashboard'],app_settings:['settings','ratios','permissions','pwmgmt']};
 const ARR={technicians:()=>techs,parts:()=>parts,leaders:()=>leaders,controllers:()=>controllers,managers:()=>managers,departments:()=>departments,entries:()=>entries,assignments:()=>assignments,shop_performance:()=>shopPerf};
 const LABEL={monthlyTarget:'target hours',target:'target hours',hours:'allocated hours',stdHours:'standard hours',name:'name',num:'part number',techName:'technician name',techId:'technician ID',pname:'part description',pnum:'part number',taskCode:'task code',time:'entry date',department:'department',email:'email address',status:'status',approvalStatus:'approval status',jobRole:'job role',jobType:'job type',ata:'ATA chapter',desc:'description',tech:'technician ratio',sup:'under-supervision ratio',inspHrs:'inspector fixed hours',prelimHrs:'preliminary-inspector fixed hours',scrapDefaultHrs:'scrap default hours'};
@@ -12964,7 +12967,7 @@ function persistMeta(){clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{if
 function record(table,action,before,after,manual){const u=actor(),r=after||before||{},rec={id:newId('act_'),timestamp:new Date().toISOString(),actorId:u.id,actorName:u.name,actorRole:u.role,table,relatedPages:RELATED[table]||[],action,entityId:String(r.id||''),entityLabel:subject(table,r).label,before:clone(before),after:clone(after),detail:detail(table,action,before,after,manual)};logs().push(rec);persistMeta();renderDrawer();return rec}window.recordActionHistory=record;
 DB.upsert=async function(table,row){const key=table+'|'+String(row?.id||''),before=row?.id?(clone(snapshots()[key])||clone((ARR[table]?.()||[]).find(x=>String(x.id)===String(row.id)))):null;const saved=await rawUpsert(table,row);snapshots()[table+'|'+saved.id]=clone(saved);record(table,before?'edit':'create',before,saved);return saved};
 DB.remove=async function(table,id){const key=table+'|'+id,before=clone(snapshots()[key])||clone((ARR[table]?.()||[]).find(x=>String(x.id)===String(id)))||{id};const ok=await rawRemove(table,id);delete snapshots()[key];record(table,'delete',before,null);return ok};
-DB.saveSettings=async function(obj){const before=clone(settings),result=await rawSave(obj);if(!savingMeta)record('app_settings','edit',before,obj);return result};
+DB.saveSettings=async function(obj){const result=await rawSave(obj);return result};
 function today(){return todayEAT()}
 function ratioHist(){if(!settings.ratioHistory||typeof settings.ratioHistory!=='object')settings.ratioHistory={defaults:[],parts:{},scrap:[]};settings.ratioHistory.defaults ||= [];settings.ratioHistory.parts ||= {};settings.ratioHistory.scrap ||= [];return settings.ratioHistory}
 function activeVersion(arr,date,fallback){const d=String(date||today()).slice(0,10);let v=fallback;(arr||[]).slice().sort((a,b)=>String(a.effectiveDate).localeCompare(String(b.effectiveDate))).forEach(x=>{if(x.effectiveDate<=d)v=x.value});return v}
