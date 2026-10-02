@@ -13100,5 +13100,122 @@ function enforceOnlineOnlySettingsUI(){
 document.addEventListener('DOMContentLoaded',()=>setTimeout(enforceOnlineOnlySettingsUI,1000));
 new MutationObserver(()=>{clearTimeout(window.__onlineUiTimer);window.__onlineUiTimer=setTimeout(enforceOnlineOnlySettingsUI,100)}).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
 </script>
+<script id="part-ratio-override-hotfix-v1">
+(function () {
+  function ratioPartKey(value) {
+    return String(value == null ? '' : value).trim().toUpperCase();
+  }
+
+  function cloneRatio(value) {
+    if (typeof cloneSetting === 'function') return cloneSetting(value);
+    return value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value;
+  }
+
+  function ensureRatioHistory() {
+    if (!settings.ratioHistory || typeof settings.ratioHistory !== 'object') {
+      settings.ratioHistory = { defaults: [], parts: {}, scrap: [] };
+    }
+    settings.ratioHistory.defaults = Array.isArray(settings.ratioHistory.defaults) ? settings.ratioHistory.defaults : [];
+    settings.ratioHistory.parts = settings.ratioHistory.parts && typeof settings.ratioHistory.parts === 'object' ? settings.ratioHistory.parts : {};
+    settings.ratioHistory.scrap = Array.isArray(settings.ratioHistory.scrap) ? settings.ratioHistory.scrap : [];
+    return settings.ratioHistory;
+  }
+
+  function ratioForDate(history, date, fallback) {
+    const target = String(date || (typeof today === 'function' ? today() : new Date().toISOString().slice(0, 10))).slice(0, 10);
+    let result = fallback;
+    (Array.isArray(history) ? history : [])
+      .slice()
+      .sort((a, b) => String(a.effectiveDate || '').localeCompare(String(b.effectiveDate || '')))
+      .forEach(item => {
+        if (String(item.effectiveDate || '').slice(0, 10) <= target && item.value) result = item.value;
+      });
+    return cloneRatio(result);
+  }
+
+  function findStoredOverride(partNum) {
+    const key = ratioPartKey(partNum);
+    const map = settings.partRatios || {};
+    if (Object.prototype.hasOwnProperty.call(map, key)) return map[key];
+    const existingKey = Object.keys(map).find(k => ratioPartKey(k) === key);
+    return existingKey ? map[existingKey] : null;
+  }
+
+  window.getRatioForPart = getRatioForPart = function (partNum, date) {
+    const key = ratioPartKey(partNum);
+    const historyMap = ensureRatioHistory().parts;
+    const historyKey = Object.keys(historyMap).find(k => ratioPartKey(k) === key);
+    const fallback = findStoredOverride(key) || getDefR(date);
+    return historyKey ? ratioForDate(historyMap[historyKey], date, fallback) : cloneRatio(fallback);
+  };
+
+  window.saveOverride = async function () {
+    if (typeof requireOnlineSettingsChange === 'function' && !requireOnlineSettingsChange()) return;
+    if (!canI('ratios', 'edit')) { toast('Not allowed', 'error'); return; }
+
+    let rawPartNum = (document.getElementById('mro-pnum')?.value || '').trim();
+    if (!rawPartNum) rawPartNum = (document.getElementById('mro-sel-num')?.textContent || '').trim();
+    if (!rawPartNum) {
+      const typed = (document.getElementById('mro-part-search')?.value || '').trim();
+      const exact = (parts || []).find(p => ratioPartKey(p.num) === ratioPartKey(typed));
+      if (exact) rawPartNum = String(exact.num || '').trim();
+    }
+    if (!rawPartNum) { toast('Select a part from the search result', 'error'); return; }
+
+    const matchingPart = (parts || []).find(p => ratioPartKey(p.num) === ratioPartKey(rawPartNum));
+    const pnum = String(matchingPart?.num || rawPartNum).trim();
+    const key = ratioPartKey(pnum);
+    const value = {
+      tech: Number(gv('mro-tech')),
+      sup: Number(gv('mro-sup')),
+      inspHrs: Number(gv('mro-insp')),
+      prelimHrs: Number(gv('mro-prelim')),
+      note: (document.getElementById('mro-note')?.value || '').trim()
+    };
+    const effectiveDate = document.getElementById('mro-effective-date')?.value || today();
+    if (![value.tech, value.sup, value.inspHrs, value.prelimHrs].every(Number.isFinite)) {
+      toast('Enter valid numeric override values', 'error'); return;
+    }
+    if (value.tech + value.sup <= 0) { toast('Override ratio total must be greater than 0', 'error'); return; }
+
+    const before = getRatioForPart(pnum, effectiveDate);
+    const histories = ensureRatioHistory().parts;
+    const oldHistoryKey = Object.keys(histories).find(k => ratioPartKey(k) === key);
+    if (oldHistoryKey && oldHistoryKey !== key) {
+      histories[key] = histories[oldHistoryKey];
+      delete histories[oldHistoryKey];
+    }
+    histories[key] = (histories[key] || []).filter(x => String(x.effectiveDate || '').slice(0, 10) !== effectiveDate);
+    histories[key].push({ effectiveDate, value: cloneRatio(value), changedAt: new Date().toISOString(), changedBy: actor().id });
+
+    settings.partRatios = settings.partRatios || {};
+    Object.keys(settings.partRatios).forEach(k => { if (k !== key && ratioPartKey(k) === key) delete settings.partRatios[k]; });
+    settings.partRatios[key] = cloneRatio(value);
+
+    try {
+      await persistSettings();
+      const confirmed = await DB.getSettings();
+      const confirmedMap = confirmed?.partRatios || {};
+      const confirmedKey = Object.keys(confirmedMap).find(k => ratioPartKey(k) === key);
+      const saved = confirmedKey ? confirmedMap[confirmedKey] : null;
+      const matches = saved && Number(saved.tech) === value.tech && Number(saved.sup) === value.sup &&
+        Number(saved.inspHrs) === value.inspHrs && Number(saved.prelimHrs) === value.prelimHrs;
+      if (!matches) throw new Error('Override database read-back mismatch');
+
+      settings.partRatios = cloneRatio(confirmedMap);
+      settings.ratioHistory = cloneRatio(confirmed?.ratioHistory || settings.ratioHistory);
+      record('app_settings', 'edit', before, value, 'Hour-ratio override for part “' + pnum + '” effective ' + effectiveDate + '.');
+      closeModal('m-override');
+      renderOvList();
+      if (typeof renderRatios === 'function') renderRatios();
+      toast('Override saved and verified for ' + pnum);
+    } catch (error) {
+      console.error('Part-ratio override save failed:', error);
+      toast('Override save failed: ' + (error?.message || error), 'error');
+    }
+  };
+})();
+</script>
+
 </body>
 </html>
