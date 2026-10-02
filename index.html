@@ -13100,142 +13100,16 @@ function enforceOnlineOnlySettingsUI(){
 document.addEventListener('DOMContentLoaded',()=>setTimeout(enforceOnlineOnlySettingsUI,1000));
 new MutationObserver(()=>{clearTimeout(window.__onlineUiTimer);window.__onlineUiTimer=setTimeout(enforceOnlineOnlySettingsUI,100)}).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
 </script>
-<script id="part-ratio-override-final-fix-v2">
-(function () {
-  const keyOf = v => String(v == null ? '' : v).trim().toUpperCase();
-  const copy = v => v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v;
-  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-
-  function historyRoot() {
-    settings.ratioHistory ||= { defaults: [], parts: {}, scrap: [] };
-    settings.ratioHistory.parts ||= {};
-    return settings.ratioHistory;
-  }
-  function mapValue(map, partNum) {
-    const wanted = keyOf(partNum);
-    const found = Object.keys(map || {}).find(k => keyOf(k) === wanted);
-    return found ? map[found] : null;
-  }
-  function activeHistory(items, date, fallback) {
-    const target = String(date || today()).slice(0, 10);
-    let result = fallback;
-    (items || []).slice().sort((a,b) => String(a.effectiveDate).localeCompare(String(b.effectiveDate))).forEach(x => {
-      if (String(x.effectiveDate).slice(0,10) <= target && x.value) result = x.value;
-    });
-    return copy(result);
-  }
-
-  window.getRatioForPart = getRatioForPart = function(partNum, date) {
-    const direct = mapValue(settings.partRatios || {}, partNum);
-    const histories = historyRoot().parts;
-    const hKey = Object.keys(histories).find(k => keyOf(k) === keyOf(partNum));
-    return hKey ? activeHistory(histories[hKey], date, direct || getDefR(date)) : copy(direct || getDefR(date));
-  };
-
-  window.renderOvList = renderOvList = function() {
-    const ov = settings.partRatios || {};
-    const el = document.getElementById('ratio-overrides');
-    if (!el) return;
-    const keys = Object.keys(ov).sort();
-    if (!keys.length) {
-      el.innerHTML = '<div class="empty"><div class="ei">🔩</div><div class="et">No overrides</div></div>';
-      return;
-    }
-    el.innerHTML = keys.map(pnum => {
-      const r = ov[pnum] || {};
-      const tot = Number(r.tech || 0) + Number(r.sup || 0);
-      const pt = (parts || []).find(p => keyOf(p.num) === keyOf(pnum));
-      const encoded = encodeURIComponent(pnum);
-      return `<div style="display:grid;grid-template-columns:180px 70px 70px 80px 80px 55px 1fr auto;gap:8px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--bdr);">
-        <div><span class="mono" style="color:var(--amber);">${esc(pnum)}</span><div style="font-size:10px;color:var(--tx3);">${esc(pt ? pt.name : '—')}</div></div>
-        <span class="mono" style="color:var(--blue);">${Number(r.tech || 0)}%</span>
-        <span class="mono" style="color:var(--green);">${Number(r.sup || 0)}%</span>
-        <span class="mono" style="color:var(--violet);">${Number(r.inspHrs || 0)}h</span>
-        <span class="mono" style="color:var(--cyan);">${Number(r.prelimHrs ?? r.prelim ?? 0)}h</span>
-        <span class="rt ${tot > 0 ? 'ok' : 'bad'}" style="font-size:12px;">${tot}%</span>
-        <span style="font-size:11.5px;color:var(--tx2);">${esc(r.note || '—')}</span>
-        <div style="display:flex;gap:6px;justify-content:flex-end;">
-          <button class="btn bo bsm" title="Edit override" onclick="editOverride(decodeURIComponent('${encoded}'))">✏️</button>
-          <button class="btn bd bsm" title="Delete override" onclick="delOverride(decodeURIComponent('${encoded}'))">🗑</button>
-        </div>
-      </div>`;
-    }).join('');
-  };
-
-  window.editOverride = function(partNum) {
-    const foundKey = Object.keys(settings.partRatios || {}).find(k => keyOf(k) === keyOf(partNum));
-    if (!foundKey) { toast('Override not found', 'error'); return; }
-    const r = settings.partRatios[foundKey] || {};
-    const pt = (parts || []).find(p => keyOf(p.num) === keyOf(foundKey));
-    sv('mro-pnum', foundKey);
-    sv('mro-part-search', foundKey);
-    stxt('mro-sel-num', foundKey);
-    stxt('mro-sel-name', pt?.name || '—');
-    const display = document.getElementById('mro-sel-display'); if (display) display.style.display = 'block';
-    const clear = document.getElementById('mro-sel-clear'); if (clear) clear.style.display = 'block';
-    const list = document.getElementById('mro-part-list'); if (list) { list.innerHTML = ''; list.style.display = 'none'; }
-    sv('mro-tech', Number(r.tech || 0));
-    sv('mro-sup', Number(r.sup || 0));
-    sv('mro-insp', Number(r.inspHrs || 0));
-    sv('mro-prelim', Number(r.prelimHrs ?? r.prelim ?? 0));
-    sv('mro-note', r.note || '');
-    const histories = historyRoot().parts;
-    const hKey = Object.keys(histories).find(k => keyOf(k) === keyOf(foundKey));
-    const latest = hKey ? (histories[hKey] || []).slice().sort((a,b) => String(b.effectiveDate).localeCompare(String(a.effectiveDate)))[0] : null;
-    sv('mro-effective-date', latest?.effectiveDate || today());
-    updOvUI();
-    openModal('m-override');
-  };
-
-  window.saveOverride = async function() {
-    if (typeof requireOnlineSettingsChange === 'function' && !requireOnlineSettingsChange()) return;
-    if (!canI('ratios','edit')) { toast('Not allowed','error'); return; }
-    let pnum = (document.getElementById('mro-pnum')?.value || document.getElementById('mro-sel-num')?.textContent || '').trim();
-    if (!pnum) { toast('Select a part from the search result','error'); return; }
-    const actual = (parts || []).find(p => keyOf(p.num) === keyOf(pnum));
-    pnum = String(actual?.num || pnum).trim();
-    const key = keyOf(pnum);
-    const value = {
-      tech: Number(gv('mro-tech')),
-      sup: Number(gv('mro-sup')),
-      inspHrs: Number(gv('mro-insp')),
-      prelimHrs: Number(gv('mro-prelim')),
-      note: (document.getElementById('mro-note')?.value || '').trim()
-    };
-    if (![value.tech,value.sup,value.inspHrs,value.prelimHrs].every(Number.isFinite)) { toast('Enter valid numeric values','error'); return; }
-    if (value.tech + value.sup <= 0) { toast('Override total must be greater than 0%','error'); return; }
-    const effectiveDate = document.getElementById('mro-effective-date')?.value || today();
-
-    settings.partRatios ||= {};
-    Object.keys(settings.partRatios).forEach(k => { if (keyOf(k) === key) delete settings.partRatios[k]; });
-    settings.partRatios[pnum] = copy(value);
-
-    const histories = historyRoot().parts;
-    const oldHKey = Object.keys(histories).find(k => keyOf(k) === key);
-    const existing = oldHKey ? histories[oldHKey] : [];
-    if (oldHKey && oldHKey !== pnum) delete histories[oldHKey];
-    histories[pnum] = (existing || []).filter(x => String(x.effectiveDate).slice(0,10) !== effectiveDate);
-    histories[pnum].push({effectiveDate, value:copy(value), changedAt:new Date().toISOString(), changedBy:String(window.CU?.id || 'unknown')});
-
-    try {
-      await persistSettings();
-      const confirmed = await DB.getSettings();
-      const saved = mapValue(confirmed?.partRatios || {}, pnum);
-      if (!saved || Number(saved.tech) !== value.tech || Number(saved.sup) !== value.sup || Number(saved.inspHrs) !== value.inspHrs || Number(saved.prelimHrs ?? saved.prelim) !== value.prelimHrs) {
-        throw new Error('Database read-back mismatch');
-      }
-      settings.partRatios = copy(confirmed.partRatios || settings.partRatios);
-      settings.ratioHistory = copy(confirmed.ratioHistory || settings.ratioHistory);
-      closeModal('m-override');
-      renderOvList();
-      toast('Override saved and verified for ' + pnum);
-    } catch (e) {
-      console.error('Override save failed:', e);
-      toast('Override save failed: ' + (e?.message || e), 'error');
-    }
-  };
-
-  setTimeout(renderOvList, 0);
+<script id="override-ratio-fix-v4">
+(function(){
+ const K=v=>String(v??'').trim().toUpperCase(), C=v=>JSON.parse(JSON.stringify(v)), E=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const eatDate=()=>{try{let a=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Addis_Ababa',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()),o=Object.fromEntries(a.map(x=>[x.type,x.value]));return `${o.year}-${o.month}-${o.day}`}catch(e){return new Date().toISOString().slice(0,10)}};
+ const findKey=(obj,n)=>Object.keys(obj||{}).find(k=>K(k)===K(n));
+ window.getRatioForPart=getRatioForPart=function(n){let k=findKey(settings.partRatios,n);return C(k?settings.partRatios[k]:getDefR())};
+ window.editOverride=function(n){let k=findKey(settings.partRatios,n);if(!k)return toast('Override not found','error');let r=settings.partRatios[k],p=(parts||[]).find(x=>K(x.num)===K(k));sv('mro-pnum',k);sv('mro-part-search',k);stxt('mro-sel-num',k);stxt('mro-sel-name',p?.name||'—');let d=document.getElementById('mro-sel-display');if(d)d.style.display='block';sv('mro-tech',r.tech);sv('mro-sup',r.sup);sv('mro-insp',r.inspHrs??0);sv('mro-prelim',r.prelimHrs??r.prelim??0);sv('mro-note',r.note||'');sv('mro-effective-date',r.effectiveDate||eatDate());updOvUI();openModal('m-override')};
+ window.renderOvList=renderOvList=function(){let el=document.getElementById('ratio-overrides'),ov=settings.partRatios||{};if(!el)return;let ks=Object.keys(ov).sort();if(!ks.length){el.innerHTML='<div class="empty"><div class="et">No overrides</div></div>';return}el.innerHTML=ks.map(k=>{let r=ov[k],t=Number(r.tech||0)+Number(r.sup||0),p=(parts||[]).find(x=>K(x.num)===K(k)),q=encodeURIComponent(k);return `<div style="display:grid;grid-template-columns:180px 70px 70px 80px 80px 55px 1fr auto;gap:8px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--bdr)"><div><span class="mono" style="color:var(--amber)">${E(k)}</span><div style="font-size:10px;color:var(--tx3)">${E(p?.name||'—')}</div></div><span class="mono" style="color:var(--blue)">${Number(r.tech||0)}%</span><span class="mono" style="color:var(--green)">${Number(r.sup||0)}%</span><span class="mono" style="color:var(--violet)">${Number(r.inspHrs||0)}h</span><span class="mono" style="color:var(--cyan)">${Number(r.prelimHrs??r.prelim??0)}h</span><span class="rt ok">${t}%</span><span>${E(r.note||'—')}</span><div style="display:flex;gap:5px"><button class="btn bo bsm" onclick="editOverride(decodeURIComponent('${q}'))">✏️</button><button class="btn bd bsm" onclick="delOverride(decodeURIComponent('${q}'))">🗑</button></div></div>`}).join('')};
+ window.saveOverride=async function(){if(typeof requireOnlineSettingsChange==='function'&&!requireOnlineSettingsChange())return;if(!canI('ratios','edit'))return toast('Not allowed','error');let n=(document.getElementById('mro-pnum')?.value||document.getElementById('mro-sel-num')?.textContent||'').trim();if(!n)return toast('Select a part','error');let p=(parts||[]).find(x=>K(x.num)===K(n));n=String(p?.num||n).trim();let v={tech:Number(gv('mro-tech')),sup:Number(gv('mro-sup')),inspHrs:Number(gv('mro-insp')),prelimHrs:Number(gv('mro-prelim')),note:(document.getElementById('mro-note')?.value||'').trim(),effectiveDate:document.getElementById('mro-effective-date')?.value||eatDate()};if(![v.tech,v.sup,v.inspHrs,v.prelimHrs].every(Number.isFinite))return toast('Enter valid numeric values','error');settings.partRatios||={};let old=findKey(settings.partRatios,n);if(old)delete settings.partRatios[old];settings.partRatios[n]=v;try{await persistSettings();let db=await DB.getSettings(),dk=findKey(db?.partRatios,n),saved=dk?db.partRatios[dk]:null;if(!saved||Number(saved.tech)!==v.tech||Number(saved.sup)!==v.sup)throw Error('Database read-back mismatch');settings.partRatios=C(db.partRatios);closeModal('m-override');renderOvList();toast('Override saved for '+n)}catch(e){console.error(e);toast('Override save failed: '+e.message,'error')}};
+ setTimeout(renderOvList,0);
 })();
 </script>
 
